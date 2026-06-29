@@ -54,3 +54,16 @@ logs/
 
 # Alembic
 backend/migrations/versions/__pycache__/
+migrations/versions/__pycache__/
+
+# MIL Platform build artefacts
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+coverage.xml
+
+# Docker volumes and MinIO local data (if mounted to filesystem)
+docker/postgres/data/

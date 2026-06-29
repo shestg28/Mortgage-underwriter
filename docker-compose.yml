@@ -1,0 +1,146 @@
+# ---------------------------------------------------------------------------
+# MIL Platform — Local Development Infrastructure
+#
+# Provides the three infrastructure services required by the platform:
+#   - PostgreSQL  (primary relational store)
+#   - MinIO       (S3-compatible object storage for document archive)
+#   - Redis       (message broker backing the EventBus and JobQueue)
+#
+# Usage:
+#   docker compose up -d          Start all services
+#   docker compose down           Stop all services (data preserved in volumes)
+#   docker compose down -v        Stop and delete all data volumes
+#
+# The application services (mil-api, mil-worker) are started separately via
+# the Makefile (make run-api, make run-worker) to support hot-reload in dev.
+# ---------------------------------------------------------------------------
+
+services:
+
+  # -----------------------------------------------------------------------
+  # PostgreSQL — primary relational store
+  #
+  # Schema is managed by Alembic migrations (make migrate).
+  # The application database user (mil) has INSERT-only permission on
+  # audit.audit_events, enforced via the migration in T024.
+  # -----------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-mil}
+      POSTGRES_USER: ${POSTGRES_USER:-mil}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # Initialisation scripts run once on first container start.
+      # Add schema-specific init scripts here as bounded contexts are implemented.
+      - ./docker/postgres/initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mil} -d ${POSTGRES_DB:-mil}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - mil-network
+
+  # -----------------------------------------------------------------------
+  # MinIO — S3-compatible object storage
+  #
+  # Stores immutable source documents. The storage bucket is created by the
+  # minio-init service below. The StorageProvider implementation in
+  # src/providers/storage/ connects to this service in local development.
+  # -----------------------------------------------------------------------
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${STORAGE_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${STORAGE_SECRET_KEY:-minioadmin}
+    ports:
+      - "${STORAGE_PORT:-9000}:9000"    # S3 API
+      - "9001:9001"                      # MinIO console (http://localhost:9001)
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - mil-network
+
+  # Creates the document storage bucket after MinIO is healthy.
+  # Runs once and exits — not a long-lived service.
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${STORAGE_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${STORAGE_SECRET_KEY:-minioadmin}
+      STORAGE_BUCKET: ${STORAGE_BUCKET:-mil-documents}
+    entrypoint: >
+      /bin/sh -c "
+        mc alias set local http://minio:9000 $${MINIO_ROOT_USER} $${MINIO_ROOT_PASSWORD};
+        mc mb --ignore-existing local/$${STORAGE_BUCKET};
+        mc anonymous set none local/$${STORAGE_BUCKET};
+        echo 'Storage bucket ready: '$${STORAGE_BUCKET};
+        exit 0;
+      "
+    networks:
+      - mil-network
+
+  # -----------------------------------------------------------------------
+  # Redis — message broker
+  #
+  # Backs the EventBus and JobQueue abstractions defined in mil.kernel.
+  # The broker implementation is replaceable — Redis is used here for local
+  # development. Production deployments may use any AMQP-compatible broker
+  # by registering a different JobQueue implementation in the DI container.
+  # -----------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: >
+      redis-server
+        --appendonly yes
+        --appendfsync everysec
+        --maxmemory 256mb
+        --maxmemory-policy allkeys-lru
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    networks:
+      - mil-network
+
+# ---------------------------------------------------------------------------
+# Volumes — persist data across container restarts
+# ---------------------------------------------------------------------------
+volumes:
+  postgres_data:
+    driver: local
+  minio_data:
+    driver: local
+  redis_data:
+    driver: local
+
+# ---------------------------------------------------------------------------
+# Networks
+# ---------------------------------------------------------------------------
+networks:
+  mil-network:
+    driver: bridge

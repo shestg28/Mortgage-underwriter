@@ -1,0 +1,186 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# ---------------------------------------------------------------------------
+# Project metadata
+# ---------------------------------------------------------------------------
+
+[project]
+name = "mil"
+version = "0.1.0"
+description = "Mortgage Intelligence Layer — evidence-driven intelligence for mortgage operations"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "Proprietary" }
+
+# Core platform dependencies.
+# No AI vendor SDK is included here — intelligence providers are registered
+# at deployment time via the DI container and are not compile-time dependencies.
+dependencies = [
+    # Web framework (ASGI)
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "python-multipart>=0.0.12",   # multipart/form-data (document upload)
+
+    # Data layer
+    "sqlalchemy[asyncio]>=2.0.36",
+    "alembic>=1.14.0",
+    "asyncpg>=0.30.0",            # async PostgreSQL driver
+    "psycopg2-binary>=2.9.10",    # sync driver for Alembic migrations
+
+    # Validation and settings
+    "pydantic>=2.10.0",
+    "pydantic-settings>=2.6.0",
+    "python-dotenv>=1.0.0",
+
+    # Observability
+    "opentelemetry-api>=1.29.0",
+    "opentelemetry-sdk>=1.29.0",
+    "opentelemetry-instrumentation-fastapi>=0.50b0",
+    "opentelemetry-instrumentation-sqlalchemy>=0.50b0",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.29.0",
+
+    # HTTP client (internal service communication, contract tests)
+    "httpx>=0.28.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    # Testing
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=6.0.0",
+    "factory-boy>=3.3.0",
+    "testcontainers[postgresql,redis]>=4.9.0",
+
+    # Linting and formatting
+    "ruff>=0.8.0",
+
+    # Type checking
+    "mypy>=1.13.0",
+    "sqlalchemy[mypy]>=2.0.36",   # SQLAlchemy mypy plugin
+
+    # Type stubs
+    "types-python-dateutil>=2.9.0",
+]
+
+# ---------------------------------------------------------------------------
+# Package discovery (src layout)
+# ---------------------------------------------------------------------------
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mil", "src/workers", "src/providers"]
+
+[tool.hatch.build.targets.wheel.sources]
+"src" = ""
+
+# ---------------------------------------------------------------------------
+# pytest
+# ---------------------------------------------------------------------------
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+# Markers allow selective test execution:
+#   pytest -m unit                    — unit tests only (no infrastructure)
+#   pytest -m integration             — integration tests (requires Docker)
+#   pytest -m contract                — API contract tests (requires running service)
+#   pytest -m "providers"             — provider conformance tests
+markers = [
+    "unit: fast, in-process tests with no external dependencies",
+    "integration: tests that require live infrastructure (PostgreSQL, Redis, MinIO)",
+    "contract: tests that validate HTTP responses against OpenAPI contracts",
+    "providers: conformance tests for provider interface implementations",
+]
+
+filterwarnings = [
+    "ignore::pytest.PytestUnraisableExceptionWarning",
+]
+
+# Sprint 2: when async tests are introduced, restore these options and ensure
+# pytest-asyncio is active in the test environment:
+#   asyncio_mode = "auto"
+#   asyncio_default_fixture_loop_scope = "session"
+
+# ---------------------------------------------------------------------------
+# Coverage
+# ---------------------------------------------------------------------------
+
+[tool.coverage.run]
+source = ["src"]
+branch = true
+omit = [
+    "src/mil/kernel/db.py",  # infrastructure; covered by integration tests
+    "migrations/*",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+fail_under = 0  # raised incrementally as the codebase grows
+
+# ---------------------------------------------------------------------------
+# Ruff (linting + formatting)
+# ---------------------------------------------------------------------------
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "N",    # pep8-naming
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "C4",   # flake8-comprehensions
+    "SIM",  # flake8-simplify
+    "TCH",  # flake8-type-checking
+    "RUF",  # ruff-specific rules
+]
+ignore = [
+    "E501",   # line-length — handled by formatter
+    "B008",   # do not perform function call in default arguments (FastAPI Depends pattern)
+    "RUF012", # mutable class attributes — SQLAlchemy relationship() pattern
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["mil", "workers", "providers"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+
+# ---------------------------------------------------------------------------
+# mypy
+# ---------------------------------------------------------------------------
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = false
+
+# SQLAlchemy 2.x mypy plugin for type-safe ORM column access.
+plugins = ["sqlalchemy.ext.mypy.plugin"]
+
+# Exclude generated migration files from type checking.
+exclude = ["migrations/versions/"]
+
+# Sprint 2: add [[tool.mypy.overrides]] sections here when testcontainers and
+# factory_boy are first imported in test code:
+#
+# [[tool.mypy.overrides]]
+# module = "testcontainers.*"
+# ignore_missing_imports = true
+#
+# [[tool.mypy.overrides]]
+# module = "factory.*"
+# ignore_missing_imports = true
