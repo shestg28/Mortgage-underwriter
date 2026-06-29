@@ -36,6 +36,11 @@ from mil.kernel.errors import DependencyNotRegisteredError
 from mil.kernel.event_bus import EventBus, InProcessEventBus
 from mil.kernel.job_queue import InProcessJobQueue, JobQueue
 from mil.kernel.observability import MetricEmitter, NoOpMetricEmitter
+from mil.kernel.providers.extraction import ExtractionProvider
+from mil.kernel.providers.inference import InferenceProvider
+from mil.kernel.providers.ocr import OCRProvider
+from mil.kernel.providers.registry import ProviderRegistry
+from mil.kernel.providers.storage import StorageProvider
 
 T = TypeVar("T")
 
@@ -161,38 +166,82 @@ def build_container(settings: Settings) -> Container:
     Assemble and return the platform dependency injection container.
 
     This function is called once at application startup (in the FastAPI
-    ``lifespan`` handler).  As bounded contexts and provider implementations
-    are added, their registrations are appended here.
+    ``lifespan`` handler).
 
-    Provider registrations are added in later sprints when their interfaces
-    and concrete implementations exist:
+    Provider implementations registered here are the development defaults.
+    Production deployments replace these with cloud-backed implementations
+    by updating the relevant ``registry.register_*`` calls.
 
-    .. code-block:: python
+    Bounded context code resolves providers through ``ProviderRegistry``
+    rather than importing concrete classes::
 
-        # Sprint 3+ — provider interface registrations:
-        # container.register_singleton(StorageProvider, lambda: S3StorageProvider(settings))
-        # container.register_singleton(OCRProvider, ...)
-        # container.register_singleton(ExtractionProvider, ...)
-        # container.register_singleton(InferenceProvider, ...)
-        # container.register_singleton(LOSAdapter, ...)
+        registry = container.resolve(ProviderRegistry)
+        ocr = registry.get_ocr()
     """
     container = Container()
 
-    # Platform settings are always available as a singleton.
+    # Platform settings — always available.
     container.register_instance(Settings, settings)
 
-    # Metric emitter — defaults to no-op in development; replaced by a
-    # concrete OTel-backed implementation in staging and production.
+    # Metric emitter — no-op in development; OTel-backed in production.
     container.register_instance(MetricEmitter, NoOpMetricEmitter())  # type: ignore[type-abstract]
 
-    # Event bus — defaults to the in-process synchronous implementation for
-    # development and testing.  Replaced by a broker-backed implementation
-    # (Redis Pub/Sub, AMQP) in staging and production.
+    # Event bus — in-process for development; broker-backed in production.
     container.register_singleton(EventBus, InProcessEventBus)  # type: ignore[type-abstract]
 
-    # Job queue — defaults to the in-process FIFO implementation for
-    # development and testing.  Replaced by a broker-backed implementation
-    # in staging and production.
+    # Job queue — in-process for development; broker-backed in production.
     container.register_singleton(JobQueue, InProcessJobQueue)
 
+    # Provider registry — build with development implementations.
+    # Replace individual register_* calls to switch to cloud providers.
+    registry = _build_provider_registry(settings)
+    container.register_instance(ProviderRegistry, registry)
+
+    # Individual provider bindings — resolved through the registry so
+    # bounded contexts can use either resolution path.
+    container.register_singleton(
+        OCRProvider,  # type: ignore[type-abstract]
+        lambda: container.resolve(ProviderRegistry).get_ocr(),
+    )
+    container.register_singleton(
+        ExtractionProvider,  # type: ignore[type-abstract]
+        lambda: container.resolve(ProviderRegistry).get_extraction(),
+    )
+    container.register_singleton(
+        InferenceProvider,  # type: ignore[type-abstract]
+        lambda: container.resolve(ProviderRegistry).get_inference(),
+    )
+    container.register_singleton(
+        StorageProvider,  # type: ignore[type-abstract]
+        lambda: container.resolve(ProviderRegistry).get_storage(),
+    )
+
     return container
+
+
+def _build_provider_registry(settings: Settings) -> ProviderRegistry:
+    """
+    Construct and validate the ProviderRegistry with development providers.
+
+    Separated from ``build_container`` so that tests can call this function
+    directly to obtain a registry without a full container assembly.
+    """
+    import pathlib
+    import tempfile
+
+    from providers.extraction.mock_extraction import MockExtractionProvider
+    from providers.inference.mock_inference import MockInferenceProvider
+    from providers.ocr.mock_ocr import MockOCRProvider
+    from providers.storage.local_storage import LocalStorageProvider
+
+    local_storage_path = pathlib.Path(tempfile.gettempdir()) / "mil-local-storage"
+
+    registry = ProviderRegistry()
+    registry.register_ocr(MockOCRProvider())
+    registry.register_extraction(MockExtractionProvider())
+    registry.register_inference(MockInferenceProvider())
+    registry.register_storage(LocalStorageProvider(base_path=local_storage_path))
+    # LOSAdapter is optional — register only when an integration is configured.
+
+    registry.validate()
+    return registry
