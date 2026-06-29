@@ -33,6 +33,8 @@ if TYPE_CHECKING:
 
 from mil.kernel.config import Settings
 from mil.kernel.errors import DependencyNotRegisteredError
+from mil.kernel.event_bus import EventBus, InProcessEventBus
+from mil.kernel.job_queue import InProcessJobQueue, JobQueue
 from mil.kernel.observability import MetricEmitter, NoOpMetricEmitter
 
 T = TypeVar("T")
@@ -182,5 +184,15 @@ def build_container(settings: Settings) -> Container:
     # Metric emitter — defaults to no-op in development; replaced by a
     # concrete OTel-backed implementation in staging and production.
     container.register_instance(MetricEmitter, NoOpMetricEmitter())  # type: ignore[type-abstract]
+
+    # Event bus — defaults to the in-process synchronous implementation for
+    # development and testing.  Replaced by a broker-backed implementation
+    # (Redis Pub/Sub, AMQP) in staging and production.
+    container.register_singleton(EventBus, InProcessEventBus)  # type: ignore[type-abstract]
+
+    # Job queue — defaults to the in-process FIFO implementation for
+    # development and testing.  Replaced by a broker-backed implementation
+    # in staging and production.
+    container.register_singleton(JobQueue, InProcessJobQueue)
 
     return container
