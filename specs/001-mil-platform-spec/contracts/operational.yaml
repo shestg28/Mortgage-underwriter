@@ -1,0 +1,222 @@
+openapi: "3.1.0"
+info:
+  title: MIL Operational Intelligence API
+  version: "1.0"
+  description: >
+    Operational visibility for mortgage operations managers. Provides SLA monitoring,
+    queue ageing, turnaround analytics, workload distribution, and bottleneck analysis.
+    All data is in aggregate form — no applicant-level personal data is exposed.
+
+paths:
+  /v1/operational/dashboard:
+    get:
+      summary: Get current operational dashboard snapshot
+      operationId: getDashboard
+      responses:
+        "200":
+          description: Operational dashboard
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OperationalDashboard"
+
+  /v1/operational/queues:
+    get:
+      summary: Get queue ageing breakdown by lifecycle state
+      operationId: getQueueAgeing
+      parameters:
+        - name: reviewer_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+          description: Filter to a specific reviewer (optional)
+      responses:
+        "200":
+          description: Queue ageing data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QueueAgeingReport"
+
+  /v1/operational/sla:
+    get:
+      summary: Get SLA compliance status
+      operationId: getSlaStatus
+      responses:
+        "200":
+          description: SLA compliance summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SlaStatusReport"
+
+  /v1/operational/turnaround:
+    get:
+      summary: Get turnaround analytics
+      operationId: getTurnaroundAnalytics
+      parameters:
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: Turnaround time analytics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TurnaroundReport"
+
+  /v1/operational/bottlenecks:
+    get:
+      summary: Get bottleneck analysis
+      operationId: getBottlenecks
+      responses:
+        "200":
+          description: Identified bottlenecks and contributing factors
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BottleneckReport"
+
+components:
+  schemas:
+    OperationalDashboard:
+      type: object
+      required:
+        - snapshot_at
+        - applications_in_review
+        - findings_pending_review
+        - sla_breached_count
+        - sla_at_risk_count
+      properties:
+        snapshot_at:
+          type: string
+          format: date-time
+        applications_in_review:
+          type: integer
+        findings_pending_review:
+          type: integer
+        findings_by_state:
+          type: object
+          additionalProperties:
+            type: integer
+        sla_breached_count:
+          type: integer
+        sla_at_risk_count:
+          type: integer
+        avg_queue_age_minutes:
+          type: number
+
+    QueueAgeingReport:
+      type: object
+      required:
+        - reported_at
+        - states
+      properties:
+        reported_at:
+          type: string
+          format: date-time
+        states:
+          type: array
+          items:
+            type: object
+            required:
+              - lifecycle_state
+              - count
+              - oldest_age_minutes
+              - avg_age_minutes
+            properties:
+              lifecycle_state:
+                type: string
+              count:
+                type: integer
+              oldest_age_minutes:
+                type: integer
+              avg_age_minutes:
+                type: integer
+
+    SlaStatusReport:
+      type: object
+      required:
+        - reported_at
+        - breached
+        - at_risk
+        - within_sla
+      properties:
+        reported_at:
+          type: string
+          format: date-time
+        breached:
+          type: integer
+          description: Findings that have exceeded their SLA threshold
+        at_risk:
+          type: integer
+          description: Findings approaching their SLA threshold
+        within_sla:
+          type: integer
+
+    TurnaroundReport:
+      type: object
+      required:
+        - period_from
+        - period_to
+        - avg_end_to_end_hours
+        - stage_breakdowns
+      properties:
+        period_from:
+          type: string
+          format: date-time
+        period_to:
+          type: string
+          format: date-time
+        avg_end_to_end_hours:
+          type: number
+        stage_breakdowns:
+          type: array
+          items:
+            type: object
+            properties:
+              stage:
+                type: string
+              avg_duration_hours:
+                type: number
+              p95_duration_hours:
+                type: number
+
+    BottleneckReport:
+      type: object
+      required:
+        - reported_at
+        - bottlenecks
+      properties:
+        reported_at:
+          type: string
+          format: date-time
+        bottlenecks:
+          type: array
+          items:
+            type: object
+            required:
+              - category
+              - description
+              - severity
+              - affected_count
+            properties:
+              category:
+                type: string
+                enum: [DOCUMENT_TYPE, POLICY_RULE, LIFECYCLE_STAGE, REVIEWER_OVERLOAD]
+              description:
+                type: string
+              severity:
+                type: string
+                enum: [LOW, MEDIUM, HIGH]
+              affected_count:
+                type: integer

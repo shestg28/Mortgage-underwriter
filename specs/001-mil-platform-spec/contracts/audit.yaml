@@ -1,0 +1,221 @@
+openapi: "3.1.0"
+info:
+  title: MIL Audit API
+  version: "1.0"
+  description: >
+    Read-only access to the immutable Audit Event log. Audit events are never modified
+    or deleted. This API is accessible to Audit Team and Compliance Team roles.
+    Supports full reconstruction of the complete lifecycle of any application.
+
+paths:
+  /v1/audit/applications/{application_id}:
+    get:
+      summary: List Audit Events for an application
+      operationId: listApplicationAuditEvents
+      parameters:
+        - $ref: "#/components/parameters/ApplicationId"
+        - name: event_type
+          in: query
+          schema:
+            type: string
+        - name: entity_type
+          in: query
+          schema:
+            type: string
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            default: 50
+            maximum: 200
+      responses:
+        "200":
+          description: Chronological Audit Events for this application
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuditEventList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /v1/audit/applications/{application_id}/lifecycle:
+    get:
+      summary: Get complete application lifecycle reconstruction
+      operationId: getApplicationLifecycle
+      description: >
+        Returns a structured reconstruction of the complete application lifecycle —
+        every document ingested, every finding generated, every verification and override
+        recorded — in chronological order. Supports regulatory examination and audit.
+      parameters:
+        - $ref: "#/components/parameters/ApplicationId"
+      responses:
+        "200":
+          description: Complete lifecycle reconstruction
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApplicationLifecycle"
+
+  /v1/audit/events/{event_id}:
+    get:
+      summary: Retrieve a single Audit Event
+      operationId: getAuditEvent
+      parameters:
+        - name: event_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Audit Event detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuditEvent"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+components:
+  parameters:
+    ApplicationId:
+      name: application_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    Unauthorized:
+      description: Authentication required
+    Forbidden:
+      description: Insufficient permissions — Audit Team or Compliance Team role required
+    NotFound:
+      description: Resource not found
+
+  schemas:
+    AuditEvent:
+      type: object
+      required:
+        - id
+        - event_type
+        - entity_type
+        - entity_id
+        - actor_type
+        - event_data
+        - occurred_at
+        - sequence_number
+      properties:
+        id:
+          type: string
+          format: uuid
+        event_type:
+          type: string
+          description: See Audit Event Types enumeration in data-model.md
+        entity_type:
+          type: string
+        entity_id:
+          type: string
+          format: uuid
+        application_id:
+          type: string
+          format: uuid
+          nullable: true
+        actor_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Null for system-generated events
+        actor_type:
+          type: string
+          enum: [USER, SYSTEM]
+        event_data:
+          type: object
+          description: Event-specific payload; structure varies by event_type
+        occurred_at:
+          type: string
+          format: date-time
+        sequence_number:
+          type: integer
+          description: Monotonically increasing; gaps indicate potential tamper events
+
+    AuditEventList:
+      type: object
+      required:
+        - items
+        - total
+        - page
+        - page_size
+        - sequence_range
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AuditEvent"
+        total:
+          type: integer
+        page:
+          type: integer
+        page_size:
+          type: integer
+        sequence_range:
+          type: object
+          properties:
+            min:
+              type: integer
+            max:
+              type: integer
+          description: Sequence number range for this result set; use to verify continuity
+
+    ApplicationLifecycle:
+      type: object
+      required:
+        - application_id
+        - reconstructed_at
+        - events
+      properties:
+        application_id:
+          type: string
+          format: uuid
+        reconstructed_at:
+          type: string
+          format: date-time
+        events:
+          type: array
+          description: Complete ordered event history for the application
+          items:
+            $ref: "#/components/schemas/AuditEvent"
+        summary:
+          type: object
+          properties:
+            document_count:
+              type: integer
+            evidence_item_count:
+              type: integer
+            finding_count:
+              type: integer
+            verification_count:
+              type: integer
+            override_count:
+              type: integer
+            escalation_count:
+              type: integer

@@ -1,0 +1,289 @@
+openapi: "3.1.0"
+info:
+  title: MIL Applications API
+  version: "1.0"
+  description: >
+    Manage mortgage applications and their associated Parties.
+    All state-changing operations require authenticated human user identity.
+
+paths:
+  /v1/applications:
+    post:
+      summary: Create a new application
+      operationId: createApplication
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateApplicationRequest"
+      responses:
+        "201":
+          description: Application created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Application"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+    get:
+      summary: List applications
+      operationId: listApplications
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+      responses:
+        "200":
+          description: Paginated list of applications
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApplicationList"
+
+  /v1/applications/{application_id}:
+    get:
+      summary: Retrieve an application
+      operationId: getApplication
+      parameters:
+        - $ref: "#/components/parameters/ApplicationId"
+      responses:
+        "200":
+          description: Application detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Application"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /v1/applications/{application_id}/parties:
+    post:
+      summary: Add a Party to an application
+      operationId: addParty
+      parameters:
+        - $ref: "#/components/parameters/ApplicationId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddPartyRequest"
+      responses:
+        "201":
+          description: Party added
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Party"
+
+    get:
+      summary: List Parties on an application
+      operationId: listParties
+      parameters:
+        - $ref: "#/components/parameters/ApplicationId"
+      responses:
+        "200":
+          description: List of Parties
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Party"
+
+  /v1/applications/{application_id}/readiness:
+    get:
+      summary: Get Mortgage Readiness assessment for an application
+      operationId: getReadiness
+      parameters:
+        - $ref: "#/components/parameters/ApplicationId"
+      responses:
+        "200":
+          description: Current readiness assessment
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadinessAssessment"
+
+components:
+  parameters:
+    ApplicationId:
+      name: application_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    ValidationError:
+      description: Request validation failed
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Unauthorized:
+      description: Authentication required
+    Forbidden:
+      description: Insufficient permissions for this action
+    NotFound:
+      description: Resource not found
+
+  schemas:
+    CreateApplicationRequest:
+      type: object
+      required:
+        - los_reference
+      properties:
+        los_reference:
+          type: string
+          description: External LOS application identifier
+
+    Application:
+      type: object
+      required:
+        - id
+        - status
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        los_reference:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [DRAFT, UNDER_REVIEW, READY_FOR_DECISION, CLOSED]
+        active_policy_pack_id:
+          type: string
+          format: uuid
+          nullable: true
+        party_count:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    ApplicationList:
+      type: object
+      required:
+        - items
+        - total
+        - page
+        - page_size
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Application"
+        total:
+          type: integer
+        page:
+          type: integer
+        page_size:
+          type: integer
+
+    AddPartyRequest:
+      type: object
+      required:
+        - party_type
+        - display_name
+      properties:
+        party_type:
+          type: string
+          enum: [APPLICANT, CO_APPLICANT, GUARANTOR, CORPORATE_ENTITY]
+        display_name:
+          type: string
+          description: Non-PII display label for this party
+
+    Party:
+      type: object
+      required:
+        - id
+        - application_id
+        - party_type
+        - display_name
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        application_id:
+          type: string
+          format: uuid
+        party_type:
+          type: string
+          enum: [APPLICANT, CO_APPLICANT, GUARANTOR, CORPORATE_ENTITY]
+        display_name:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    ReadinessAssessment:
+      type: object
+      required:
+        - application_id
+        - is_ready
+        - assessed_at
+        - missing_items
+        - unresolved_finding_count
+      properties:
+        application_id:
+          type: string
+          format: uuid
+        is_ready:
+          type: boolean
+        assessed_at:
+          type: string
+          format: date-time
+        missing_items:
+          type: array
+          items:
+            type: object
+            properties:
+              category:
+                type: string
+              description:
+                type: string
+        unresolved_finding_count:
+          type: integer
+        incomplete_verification_count:
+          type: integer
+
+    ErrorResponse:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        details:
+          type: array
+          items:
+            type: string

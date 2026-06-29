@@ -1,0 +1,209 @@
+openapi: "3.1.0"
+info:
+  title: MIL Evidence Copilot API
+  version: "1.0"
+  description: >
+    Evidence-grounded natural language query interface. Every response is anchored to
+    specific evidence items within the scoped application. The Copilot does not speculate
+    beyond the available evidence record. All inference is scoped strictly to the
+    application identified in the request.
+
+paths:
+  /v1/applications/{application_id}/copilot/query:
+    post:
+      summary: Submit a natural language query about an application's evidence
+      operationId: copilotQuery
+      parameters:
+        - $ref: "#/components/parameters/ApplicationId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CopilotQueryRequest"
+      responses:
+        "200":
+          description: Evidence-grounded response with citations
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CopilotQueryResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /v1/applications/{application_id}/copilot/history:
+    get:
+      summary: List prior Copilot queries for this application
+      operationId: listCopilotHistory
+      parameters:
+        - $ref: "#/components/parameters/ApplicationId"
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+      responses:
+        "200":
+          description: List of prior queries and responses
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CopilotHistoryList"
+
+components:
+  parameters:
+    ApplicationId:
+      name: application_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    ValidationError:
+      description: Request validation failed
+    Unauthorized:
+      description: Authentication required
+    Forbidden:
+      description: Insufficient permissions
+
+  schemas:
+    CopilotQueryRequest:
+      type: object
+      required:
+        - query
+      properties:
+        query:
+          type: string
+          minLength: 5
+          maxLength: 2000
+          description: >
+            Natural language query about the application's evidence.
+            Representative query types include: finding explanation, flagging rationale,
+            evidence attribution, document contradictions, application summary,
+            evidence gap identification, and change history since a previous review.
+        context_hint:
+          type: string
+          nullable: true
+          enum:
+            - EXPLAIN_FINDING
+            - FLAGGING_RATIONALE
+            - EVIDENCE_ATTRIBUTION
+            - DOCUMENT_CONTRADICTIONS
+            - APPLICATION_SUMMARY
+            - EVIDENCE_GAPS
+            - CHANGE_HISTORY
+          description: Optional hint to help the Copilot select the appropriate response strategy
+
+    CopilotQueryResponse:
+      type: object
+      required:
+        - query_id
+        - application_id
+        - response_text
+        - citations
+        - is_evidence_grounded
+        - evidence_scope_count
+        - model_version
+        - prompt_version
+        - responded_at
+      properties:
+        query_id:
+          type: string
+          format: uuid
+        application_id:
+          type: string
+          format: uuid
+        response_text:
+          type: string
+          description: The Copilot's natural language response
+        citations:
+          type: array
+          description: >
+            Specific evidence items referenced in the response. Every factual claim
+            in response_text must be supported by at least one citation.
+          items:
+            $ref: "#/components/schemas/EvidenceCitation"
+        is_evidence_grounded:
+          type: boolean
+          description: >
+            True if the response is fully supported by the available evidence.
+            False if the query asked about something absent from the evidence record
+            (the response will explain what is missing).
+        evidence_scope_count:
+          type: integer
+          description: Number of evidence items in scope for this application at query time
+        gaps_identified:
+          type: array
+          items:
+            type: string
+          description: Evidence gaps identified in response to a gap-analysis query
+        model_version:
+          type: string
+        prompt_version:
+          type: string
+        responded_at:
+          type: string
+          format: date-time
+
+    EvidenceCitation:
+      type: object
+      required:
+        - evidence_item_id
+        - document_id
+        - evidence_type
+        - relevance
+      properties:
+        evidence_item_id:
+          type: string
+          format: uuid
+        document_id:
+          type: string
+          format: uuid
+        evidence_type:
+          type: string
+        page_number:
+          type: integer
+          nullable: true
+        relevance:
+          type: string
+          description: Brief explanation of how this evidence supports the response
+
+    CopilotHistoryItem:
+      type: object
+      required:
+        - query_id
+        - query
+        - response_text
+        - responded_at
+      properties:
+        query_id:
+          type: string
+          format: uuid
+        query:
+          type: string
+        response_text:
+          type: string
+        citation_count:
+          type: integer
+        responded_at:
+          type: string
+          format: date-time
+
+    CopilotHistoryList:
+      type: object
+      required:
+        - items
+        - total
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/CopilotHistoryItem"
+        total:
+          type: integer

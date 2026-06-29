@@ -1,0 +1,420 @@
+openapi: "3.1.0"
+info:
+  title: MIL Findings API
+  version: "1.0"
+  description: >
+    Access and manage AI-generated Findings. Every Finding response includes all five
+    explainability fields and all four attribution fields. No Finding is surfaced to a
+    user without a complete explanation.
+
+paths:
+  /v1/applications/{application_id}/findings:
+    get:
+      summary: List Findings for an application
+      operationId: listFindings
+      parameters:
+        - $ref: "#/components/parameters/ApplicationId"
+        - name: lifecycle_state
+          in: query
+          schema:
+            type: string
+            enum: [EXTRACTED, NEEDS_REVIEW, VERIFIED, OVERRIDDEN, ESCALATED, RESOLVED]
+        - name: finding_type
+          in: query
+          schema:
+            type: string
+        - name: party_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+      responses:
+        "200":
+          description: Paginated list of Findings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FindingList"
+
+  /v1/applications/{application_id}/findings/{finding_id}:
+    get:
+      summary: Retrieve a Finding with full evidence context
+      operationId: getFinding
+      parameters:
+        - $ref: "#/components/parameters/ApplicationId"
+        - $ref: "#/components/parameters/FindingId"
+      responses:
+        "200":
+          description: Finding detail with evidence snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FindingDetail"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /v1/applications/{application_id}/findings/{finding_id}/verify:
+    post:
+      summary: Verify a Finding as accurate
+      operationId: verifyFinding
+      parameters:
+        - $ref: "#/components/parameters/ApplicationId"
+        - $ref: "#/components/parameters/FindingId"
+      responses:
+        "200":
+          description: Finding verified; returns updated Finding
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FindingDetail"
+        "409":
+          description: Finding is not in a state that allows verification
+
+  /v1/applications/{application_id}/findings/{finding_id}/override:
+    post:
+      summary: Override a Finding with a corrected value
+      operationId: overrideFinding
+      parameters:
+        - $ref: "#/components/parameters/ApplicationId"
+        - $ref: "#/components/parameters/FindingId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OverrideRequest"
+      responses:
+        "200":
+          description: Finding overridden; returns updated Finding
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FindingDetail"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "409":
+          description: Finding is not in a state that allows override
+
+  /v1/applications/{application_id}/findings/{finding_id}/escalate:
+    post:
+      summary: Escalate a Finding for senior review
+      operationId: escalateFinding
+      parameters:
+        - $ref: "#/components/parameters/ApplicationId"
+        - $ref: "#/components/parameters/FindingId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EscalateRequest"
+      responses:
+        "200":
+          description: Finding escalated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FindingDetail"
+
+  /v1/applications/{application_id}/findings/{finding_id}/resolve:
+    post:
+      summary: Resolve an escalated Finding
+      operationId: resolveEscalation
+      parameters:
+        - $ref: "#/components/parameters/ApplicationId"
+        - $ref: "#/components/parameters/FindingId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResolveRequest"
+      responses:
+        "200":
+          description: Escalation resolved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FindingDetail"
+
+components:
+  parameters:
+    ApplicationId:
+      name: application_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    FindingId:
+      name: finding_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    ValidationError:
+      description: Request validation failed
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    NotFound:
+      description: Resource not found
+
+  schemas:
+    # Core Finding object — all five explainability fields are REQUIRED
+    Finding:
+      type: object
+      required:
+        - id
+        - application_id
+        - finding_type
+        - lifecycle_state
+        - title
+        - rationale
+        - evidence_summary
+        - confidence_label
+        - recommended_action
+        - confidence_score
+        - model_version
+        - prompt_version
+        - policy_pack_id
+        - extraction_version
+        - generated_at
+        - created_at
+        - party_ids
+      properties:
+        id:
+          type: string
+          format: uuid
+        application_id:
+          type: string
+          format: uuid
+        finding_type:
+          type: string
+          description: e.g., INCOME_INCONSISTENCY, PROPERTY_VALUE_MISMATCH
+        lifecycle_state:
+          type: string
+          enum: [EXTRACTED, NEEDS_REVIEW, VERIFIED, OVERRIDDEN, ESCALATED, RESOLVED]
+        # Explainability (all five required — Principle III)
+        title:
+          type: string
+          description: "Explainability: What was found"
+        rationale:
+          type: string
+          description: "Explainability: Why it was found"
+        evidence_summary:
+          type: string
+          description: "Explainability: What evidence supports this finding"
+        confidence_label:
+          type: string
+          description: "Explainability: Confidence in plain language for non-technical reviewers"
+        recommended_action:
+          type: string
+          description: "Explainability: What action the reviewer should take"
+        confidence_score:
+          type: number
+          format: float
+          minimum: 0.0
+          maximum: 1.0
+        # Attribution (all four required — Principle XII)
+        model_version:
+          type: string
+        prompt_version:
+          type: string
+        policy_pack_id:
+          type: string
+          format: uuid
+        extraction_version:
+          type: string
+        generated_at:
+          type: string
+          format: date-time
+        party_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+          description: Parties this finding pertains to
+        created_at:
+          type: string
+          format: date-time
+
+    FindingDetail:
+      allOf:
+        - $ref: "#/components/schemas/Finding"
+        - type: object
+          properties:
+            evidence_snapshot:
+              type: array
+              description: Immutable evidence items captured at finding generation
+              items:
+                $ref: "#/components/schemas/EvidenceSnapshotItem"
+            verification_history:
+              type: array
+              items:
+                $ref: "#/components/schemas/VerificationRecord"
+
+    FindingList:
+      type: object
+      required:
+        - items
+        - total
+        - page
+        - page_size
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Finding"
+        total:
+          type: integer
+        page:
+          type: integer
+        page_size:
+          type: integer
+
+    EvidenceSnapshotItem:
+      type: object
+      required:
+        - evidence_item_id
+        - evidence_type
+        - value_text
+        - extraction_confidence
+        - extraction_method
+        - extraction_model_version
+        - page_number
+        - extracted_at
+        - snapshot_order
+      properties:
+        evidence_item_id:
+          type: string
+          format: uuid
+        evidence_type:
+          type: string
+        value_text:
+          type: string
+          nullable: true
+        value_numeric:
+          type: number
+          nullable: true
+        currency:
+          type: string
+          nullable: true
+        page_number:
+          type: integer
+          nullable: true
+        field_location:
+          type: object
+          nullable: true
+        extraction_confidence:
+          type: number
+          format: float
+        extraction_method:
+          type: string
+        extraction_model_version:
+          type: string
+        extracted_at:
+          type: string
+          format: date-time
+        snapshot_order:
+          type: integer
+
+    VerificationRecord:
+      type: object
+      required:
+        - id
+        - action
+        - reviewer_id
+        - previous_state
+        - new_state
+        - recorded_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        action:
+          type: string
+          enum: [VERIFY, OVERRIDE, ESCALATE, RESOLVE]
+        reviewer_id:
+          type: string
+          format: uuid
+        previous_state:
+          type: string
+        new_state:
+          type: string
+        previous_value:
+          type: object
+          nullable: true
+        new_value:
+          type: object
+          nullable: true
+        reason:
+          type: string
+          nullable: true
+        recorded_at:
+          type: string
+          format: date-time
+
+    OverrideRequest:
+      type: object
+      required:
+        - new_value
+        - reason
+      properties:
+        new_value:
+          type: object
+          description: The replacement value asserted by the reviewer
+        reason:
+          type: string
+          minLength: 10
+          description: Mandatory justification for the override
+
+    EscalateRequest:
+      type: object
+      required:
+        - reason
+      properties:
+        reason:
+          type: string
+          minLength: 10
+          description: Reason for escalation
+
+    ResolveRequest:
+      type: object
+      required:
+        - reason
+      properties:
+        reason:
+          type: string
+          minLength: 10
+          description: Resolution rationale
+
+    ErrorResponse:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        details:
+          type: array
+          items:
+            type: string

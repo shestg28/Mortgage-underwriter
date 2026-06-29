@@ -1,0 +1,176 @@
+openapi: "3.1.0"
+info:
+  title: MIL Documents API
+  version: "1.0"
+  description: >
+    Upload and manage mortgage documents. Documents are immutable after upload —
+    source files are retained unchanged alongside extracted evidence.
+    Documents may be associated with a specific Party within the application.
+
+paths:
+  /v1/applications/{application_id}/documents:
+    post:
+      summary: Upload a document to an application
+      operationId: uploadDocument
+      parameters:
+        - $ref: "#/components/parameters/ApplicationId"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+                - document_type
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: >
+                    Document file. Supported: native PDFs, scanned PDFs, JPEG, PNG,
+                    TIFF, multi-page documents, mixed bundles (ZIP).
+                document_type:
+                  type: string
+                  description: e.g., BANK_STATEMENT, PAYSLIP, VALUATION_REPORT, IDENTITY_DOCUMENT
+                party_id:
+                  type: string
+                  format: uuid
+                  description: Party this document belongs to (optional; may be associated later)
+      responses:
+        "201":
+          description: Document uploaded and queued for ingestion
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Document"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+    get:
+      summary: List documents for an application
+      operationId: listDocuments
+      parameters:
+        - $ref: "#/components/parameters/ApplicationId"
+        - name: party_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: document_type
+          in: query
+          schema:
+            type: string
+        - name: ingestion_status
+          in: query
+          schema:
+            type: string
+            enum: [PENDING, IN_PROGRESS, COMPLETED, FAILED]
+      responses:
+        "200":
+          description: List of documents
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Document"
+
+  /v1/applications/{application_id}/documents/{document_id}:
+    get:
+      summary: Retrieve document metadata
+      operationId: getDocument
+      parameters:
+        - $ref: "#/components/parameters/ApplicationId"
+        - $ref: "#/components/parameters/DocumentId"
+      responses:
+        "200":
+          description: Document metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Document"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+components:
+  parameters:
+    ApplicationId:
+      name: application_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    DocumentId:
+      name: document_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    ValidationError:
+      description: Request validation failed
+    Unauthorized:
+      description: Authentication required
+    Forbidden:
+      description: Insufficient permissions
+    NotFound:
+      description: Resource not found
+
+  schemas:
+    Document:
+      type: object
+      required:
+        - id
+        - application_id
+        - document_type
+        - ingestion_status
+        - content_hash
+        - uploaded_at
+        - uploaded_by
+      properties:
+        id:
+          type: string
+          format: uuid
+        application_id:
+          type: string
+          format: uuid
+        party_id:
+          type: string
+          format: uuid
+          nullable: true
+        document_type:
+          type: string
+        ingestion_status:
+          type: string
+          enum: [PENDING, IN_PROGRESS, COMPLETED, FAILED]
+        page_count:
+          type: integer
+          nullable: true
+        content_hash:
+          type: string
+          description: SHA-256 of document content; use to verify integrity
+        evidence_item_count:
+          type: integer
+          description: Number of Evidence items extracted from this document (0 until ingestion complete)
+        uploaded_at:
+          type: string
+          format: date-time
+        uploaded_by:
+          type: string
+          format: uuid
+        ingestion_completed_at:
+          type: string
+          format: date-time
+          nullable: true
+        ingestion_error:
+          type: string
+          nullable: true
+          description: Error description if ingestion_status is FAILED

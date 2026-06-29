@@ -1,0 +1,236 @@
+openapi: "3.1.0"
+info:
+  title: MIL Evidence API
+  version: "1.0"
+  description: >
+    Access structured Evidence objects. Evidence is immutable after creation.
+    All seven provenance attributes are present on every Evidence response.
+    Documents are uploaded through the Documents API; Evidence is read-only from the API perspective.
+
+paths:
+  /v1/applications/{application_id}/evidence:
+    get:
+      summary: List Evidence for an application
+      operationId: listEvidence
+      parameters:
+        - $ref: "#/components/parameters/ApplicationId"
+        - name: party_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: evidence_type
+          in: query
+          schema:
+            type: string
+        - name: document_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: min_confidence
+          in: query
+          schema:
+            type: number
+            format: float
+            minimum: 0.0
+            maximum: 1.0
+        - name: include_superseded
+          in: query
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: List of Evidence items
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EvidenceList"
+
+  /v1/applications/{application_id}/evidence/{evidence_id}:
+    get:
+      summary: Retrieve a single Evidence item
+      operationId: getEvidence
+      parameters:
+        - $ref: "#/components/parameters/ApplicationId"
+        - $ref: "#/components/parameters/EvidenceId"
+      responses:
+        "200":
+          description: Evidence item with full provenance
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EvidenceItem"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /v1/applications/{application_id}/evidence/{evidence_id}/relationships:
+    get:
+      summary: List relationships for an Evidence item
+      operationId: getEvidenceRelationships
+      parameters:
+        - $ref: "#/components/parameters/ApplicationId"
+        - $ref: "#/components/parameters/EvidenceId"
+      responses:
+        "200":
+          description: Evidence relationships (confirms, contradicts, derived_from)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EvidenceRelationshipList"
+
+components:
+  parameters:
+    ApplicationId:
+      name: application_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    EvidenceId:
+      name: evidence_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    NotFound:
+      description: Resource not found
+
+  schemas:
+    # All seven provenance attributes are REQUIRED — Principle II
+    EvidenceItem:
+      type: object
+      required:
+        - id
+        - application_id
+        - document_id
+        - evidence_type
+        - extraction_confidence
+        - extraction_method
+        - extraction_model_version
+        - extracted_at
+        - policy_pack_id
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        application_id:
+          type: string
+          format: uuid
+        party_id:
+          type: string
+          format: uuid
+          nullable: true
+        document_id:
+          type: string
+          format: uuid
+          description: "Provenance: Source document"
+        evidence_type:
+          type: string
+        value_text:
+          type: string
+          nullable: true
+        value_numeric:
+          type: number
+          nullable: true
+        currency:
+          type: string
+          nullable: true
+        # Provenance attributes (all seven required — Principle II)
+        page_number:
+          type: integer
+          nullable: true
+          description: "Provenance: Page within source document"
+        field_location:
+          type: object
+          nullable: true
+          description: "Provenance: Field location on page (when derivable)"
+        extraction_confidence:
+          type: number
+          format: float
+          minimum: 0.0
+          maximum: 1.0
+          description: "Provenance: Extraction confidence score"
+        extraction_method:
+          type: string
+          description: "Provenance: Extraction method or component used"
+        extraction_model_version:
+          type: string
+          description: "Provenance: AI model version that produced this extraction"
+        extracted_at:
+          type: string
+          format: date-time
+          description: "Provenance: When extraction occurred"
+        # Supersession
+        supersedes_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: If non-null, this item corrects the referenced item
+        is_superseded:
+          type: boolean
+          description: True if this item has been superseded by a later correction
+        policy_pack_id:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+
+    EvidenceList:
+      type: object
+      required:
+        - items
+        - total
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/EvidenceItem"
+        total:
+          type: integer
+
+    EvidenceRelationship:
+      type: object
+      required:
+        - id
+        - source_evidence_id
+        - related_evidence_id
+        - relationship_type
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        source_evidence_id:
+          type: string
+          format: uuid
+        related_evidence_id:
+          type: string
+          format: uuid
+        relationship_type:
+          type: string
+          enum: [CONFIRMS, CONTRADICTS, DERIVED_FROM]
+        created_at:
+          type: string
+          format: date-time
+
+    EvidenceRelationshipList:
+      type: object
+      required:
+        - source_evidence_id
+        - relationships
+      properties:
+        source_evidence_id:
+          type: string
+          format: uuid
+        relationships:
+          type: array
+          items:
+            $ref: "#/components/schemas/EvidenceRelationship"
