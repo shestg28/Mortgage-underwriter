@@ -1,0 +1,259 @@
+# MIL Platform Architecture
+
+This document is the primary engineering handbook for contributors to the
+Mortgage Intelligence Layer (MIL) platform.  Read it before adding a bounded
+context, a provider, or a domain event.
+
+---
+
+## 1. Architecture Philosophy
+
+MIL is built as a **Clean Architecture modular monolith**.  The monolith keeps
+operational complexity low while the module boundaries enforce the same
+discipline that microservices would — without the network and deployment
+overhead of a distributed system.  Each bounded context is a self-contained
+vertical slice.  Splitting a context into its own service at a later date
+requires only a deployment change, not a code rewrite.
+
+The platform is an **Intelligence Layer**, not a Loan Origination System.  It
+reads from LOS platforms, enriches data with structured evidence and AI
+findings, and returns results to the LOS.  It never approves or rejects loan
+applications.  Human reviewers retain decision authority at every stage.
+
+---
+
+## 2. Clean Architecture Dependency Rules
+
+```
+          ┌─────────────────────────────────────┐
+          │         Bounded Contexts             │
+          │  (mortgage, document, evidence …)    │
+          │                                      │
+          │   ↓ depends on (inward only)         │
+          ├─────────────────────────────────────┤
+          │         Platform Kernel              │
+          │  (mil/kernel/)                       │
+          │                                      │
+          │   ↓ depends on (standard library)    │
+          └─────────────────────────────────────┘
+```
+
+**Rules — never violate these:**
+
+1. Dependencies point inward.  `mil/kernel/` depends only on the Python
+   standard library.  Bounded contexts depend on `mil/kernel/`.  Nothing in
+   `mil/kernel/` imports from any bounded context package.
+2. No circular dependencies anywhere in the codebase.
+3. Concrete provider implementations (`src/providers/`) depend on
+   `mil/kernel/providers/` but are never imported by `mil/kernel/` itself.
+   They are wired together only in `container.py`.
+4. Domain events defined in `mil/kernel/events.py` are the only cross-context
+   communication channel.  Bounded contexts must not call each other directly.
+
+---
+
+## 3. Bounded Context Model
+
+Each bounded context is a directory under `src/` (e.g. `src/mortgage/`,
+`src/document/`, `src/evidence/`).  Contexts own their own:
+
+- Domain models (entities, value objects)
+- Application services (use-case orchestration)
+- Repository interfaces (persistence contracts)
+- FastAPI routers (HTTP delivery)
+
+Contexts communicate by publishing and subscribing to domain events on the
+`EventBus`.  They do not import each other's internal modules.
+
+---
+
+## 4. Platform Kernel Responsibilities
+
+`mil/kernel/` is the only cross-cutting package imported by all bounded
+contexts.  It provides:
+
+| Module | Responsibility |
+|---|---|
+| `container.py` | Dependency injection container and factory |
+| `config.py` | Settings loaded from environment variables |
+| `errors.py` | Canonical error codes and exceptions |
+| `events.py` | Frozen domain event dataclasses |
+| `event_bus.py` | EventBus interface and in-process implementation |
+| `job_queue.py` | JobQueue interface and in-process implementation |
+| `observability.py` | Metrics, tracing, and structured logging primitives |
+| `providers/` | Provider contracts and ProviderRegistry |
+| `types.py` | Typed aliases (`TenantId`, `DocumentId`, etc.) |
+
+The kernel must remain **completely domain-agnostic**.  Mortgage business
+concepts belong in bounded contexts, not in the kernel.
+
+---
+
+## 5. Provider Framework Philosophy
+
+Providers abstract every external system the platform depends on.  There are
+five provider contracts defined in `mil/kernel/providers/`:
+
+| Interface | Abstraction |
+|---|---|
+| `OCRProvider` | Converts document bytes into structured page text |
+| `ExtractionProvider` | Extracts typed evidence from OCR output |
+| `InferenceProvider` | Runs AI queries against a set of evidence |
+| `StorageProvider` | Content-addressed blob storage |
+| `LOSAdapter` | Reads application data from a Loan Origination System |
+
+Concrete implementations live in `src/providers/`.  Development uses mock and
+local-filesystem implementations.  Production swaps them for cloud-backed
+implementations by updating the `register_*` calls in `_build_provider_registry()`.
+
+Every provider method that produces an AI or ML output **must** return the
+provider's version identifier as part of the response (Engineering Constitution
+Principle XII — Deterministic Intelligence).
+
+---
+
+## 6. Dependency Injection Philosophy
+
+`Container` (in `mil/kernel/container.py`) is a thin, type-safe DI registry.
+There is a single container instance per application process, assembled once
+during startup by `build_container()`.
+
+**Bounded context services receive their dependencies through the container.**
+They do not instantiate concrete classes directly.  Services resolve the
+`ProviderRegistry` and call `get_ocr()`, `get_storage()`, etc. — they never
+import `MockOCRProvider` or any other concrete class.
+
+This one-directional wiring is what makes provider swaps transparent: replacing
+`MockOCRProvider` with `AzureDocumentIntelligenceProvider` is a single line
+change in `_build_provider_registry()`.
+
+---
+
+## 7. Event-Driven Communication Model
+
+Bounded contexts communicate exclusively through domain events.
+
+```
+  Document Context            Evidence Context
+       │                            │
+       │  publishes                 │
+       │  DocumentIngested ────────►│ subscribes
+       │                            │
+       │                            │  publishes
+       │                            │  EvidenceExtracted ───► (next consumer)
+```
+
+Events are defined as frozen dataclasses in `mil/kernel/events.py`.
+Handlers are registered on the `EventBus` at startup.
+`InProcessEventBus` dispatches synchronously and is suitable for development
+and test.  Production deployments register a broker-backed implementation
+(e.g. Redis Streams, AMQP) that provides durability and fan-out.
+
+**Event design rules:**
+
+- Names are past-tense facts: `DocumentIngested`, not `IngestDocument`.
+- Events carry all data subscribers need to act — no follow-up queries.
+- Events record `tenant_id`, `event_id`, `occurred_at`, and `correlation_id`.
+- Events are always serialisable to plain JSON.
+
+---
+
+## 8. How to Add a New Bounded Context
+
+1. Create `src/<context_name>/` with `__init__.py`.
+2. Define domain models as dataclasses or Pydantic models inside the context.
+3. Define repository interfaces (ABCs) inside the context — do not implement
+   persistence in domain models.
+4. Implement application services that orchestrate domain logic.
+5. Add a FastAPI router in `src/<context_name>/api/`.
+6. Register the router in `src/main.py`.
+7. If the context needs a provider, resolve it through `ProviderRegistry` from
+   the DI container — do not import concrete provider classes.
+8. Never import from another bounded context's internal modules.  Use events.
+
+---
+
+## 9. How to Add a New Provider
+
+1. If a new provider type is needed, define the abstract interface as a class
+   in `src/mil/kernel/providers/<name>.py`.  Keep the interface small and
+   cohesive — one capability, no business logic.
+2. Add a `register_<name>` and `get_<name>` pair to `ProviderRegistry`.
+3. Add the key to `_REQUIRED_PROVIDERS` only if every deployment must have it
+   registered.  Optional integrations (like `LOSAdapter`) should not be in
+   the required set.
+4. Implement a development mock in `src/providers/<name>/mock_<name>.py`.
+5. Write conformance tests in `tests/providers/test_<name>_conformance.py`
+   covering: interface contract, version string, return type invariants, and
+   field validation.
+6. Register the mock in `_build_provider_registry()` in `container.py`.
+
+---
+
+## 10. How to Add a New Domain Event
+
+1. Add a frozen dataclass to `src/mil/kernel/events.py` that extends
+   `DomainEvent`.
+2. Required positional fields go before the `KW_ONLY` sentinel inherited from
+   `DomainEvent`.  Fields with defaults go after.
+3. The event name must be a past-tense fact.
+4. If the event relates to AI output, include a `*_version` field
+   (e.g. `extraction_version`) to satisfy Principle XII.
+5. Register a subscriber in the appropriate bounded context's startup hook.
+
+---
+
+## 11. Coding Conventions
+
+- **Python 3.12+**.  Use `from __future__ import annotations` in every file.
+- **ruff** for linting and formatting.  `make check` must pass before merging.
+- **mypy strict** for type checking.  No untyped functions in `mil/kernel/`.
+- **Frozen dataclasses** for all value objects, events, and immutable result
+  types.  Mutable state belongs in services, not in domain objects.
+- **`dataclasses.replace()`** for producing new versions of frozen objects
+  (e.g. retry increment).
+- **No comments that describe what code does** — only comments that explain
+  *why* a design choice was made when it would otherwise be surprising.
+- **No business logic in providers**.  Providers are I/O adapters only.
+- **No concrete provider imports in bounded context code**.  Always resolve
+  through the container.
+- **Timezone-aware datetimes everywhere**.  Use `datetime.now(UTC)`.
+- **SHA-256 content hashing** for all stored document bytes.
+
+---
+
+## 12. Common Architectural Anti-Patterns to Avoid
+
+| Anti-pattern | Why it is wrong |
+|---|---|
+| Importing a concrete provider class in a bounded context | Breaks replaceability; couples the context to an implementation detail |
+| Calling another bounded context's service directly | Creates hidden coupling; use domain events instead |
+| Adding mortgage business logic to `mil/kernel/` | Violates the domain-agnostic kernel invariant |
+| Storing credentials in source code or config files | Violates Engineering Constitution Principle V; use the secret management layer |
+| Returning AI output without a version identifier | Violates Principle XII; every finding must be reproducible |
+| Mutable domain events | Events represent immutable facts; mutation means the fact changed, which requires a new event |
+| Skipping the `validate()` call on `ProviderRegistry` | Missing providers surface at first use, not at startup; always validate at boot |
+| Using `InProcessJobQueue` or `InProcessEventBus` in production | These provide no durability; failing workers lose jobs silently |
+
+---
+
+## 13. Future Extension Philosophy
+
+The Platform Kernel is **frozen**.  Future work should extend it rather than
+restructure it.
+
+Extensions follow this priority order:
+
+1. **New bounded context** — add a context under `src/`; do not expand the
+   kernel to accommodate it.
+2. **New provider type** — add a kernel interface and a development mock;
+   cloud implementations follow separately.
+3. **New domain event** — add to `mil/kernel/events.py` following the
+   existing conventions.
+4. **New cross-cutting concern** — only additions to the kernel that are
+   genuinely shared across every bounded context are justified.  When in
+   doubt, put it in the bounded context.
+
+The modular monolith structure means the first milestone of any future
+service-extraction is a clean module boundary, not a rewrite.  Keep those
+boundaries clean.

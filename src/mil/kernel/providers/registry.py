@@ -197,6 +197,10 @@ class ProviderRegistry:
     # ---- Internal -----------------------------------------------------------
 
     def _get(self, key: str, expected_type: type[_T]) -> _T:
+        # expected_type is imported inside each get_*() method (not at module
+        # top-level) to break the import cycle: registry.py is part of the
+        # kernel but the provider ABCs live in sibling modules that are all
+        # imported by container.py.  Lazy imports keep the cycle-free invariant.
         provider = self._providers.get(key)
         if provider is None:
             raise ProviderRegistryError(

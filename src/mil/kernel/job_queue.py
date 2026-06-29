@@ -12,7 +12,7 @@ concrete broker exists in the domain layer.
 
 This module provides:
 
-- ``Job`` — an immutable job descriptor with idempotency guarantees.
+- ``Job`` — an immutable frozen descriptor with idempotency guarantees.
 - ``JobQueue`` — abstract interface for enqueue/dequeue/acknowledge cycles.
 - ``InProcessJobQueue`` — synchronous, in-memory implementation for
   development and testing.
@@ -47,10 +47,10 @@ def _now_utc() -> datetime:
     return datetime.now(UTC)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True, eq=False)
 class Job:
     """
-    An immutable-by-convention unit of asynchronous work.
+    An immutable unit of asynchronous work.
 
     ``job_id`` uniquely identifies this particular job instance.
     ``idempotency_key`` is a stable, caller-supplied key that prevents the
@@ -110,6 +110,12 @@ class JobQueue:
     Subclasses MUST override all methods.  This base class raises
     ``NotImplementedError`` for all operations so that missing overrides are
     caught at runtime during development.
+
+    Design note: this is a concrete class with ``NotImplementedError``, not an
+    ABC.  Using ABC would force mypy to reject ``register_singleton(JobQueue,
+    InProcessJobQueue)`` in the container without a ``type: ignore`` comment on
+    every callsite.  ``NotImplementedError`` achieves the same safety guarantee
+    (missing overrides fail loudly) while keeping container registration clean.
     """
 
     def enqueue(self, job: Job) -> None:
@@ -220,6 +226,7 @@ class InProcessJobQueue(JobQueue):
         if job is None:
             return
         if requeue and job.retry_count < job.max_retries:
+            # Job is frozen, so create a new instance with the incremented counter.
             retry_job = dataclasses.replace(job, retry_count=job.retry_count + 1)
             self._pending.appendleft(retry_job)
         else:

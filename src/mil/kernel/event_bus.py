@@ -122,6 +122,8 @@ class InProcessEventBus(EventBus):
         self._handlers: dict[type[DomainEvent], list[EventHandler]] = {}
 
     def publish(self, event: DomainEvent) -> None:
+        # Snapshot the handler list before iterating so that a handler that
+        # subscribes or unsubscribes during dispatch does not affect this call.
         handlers = list(self._handlers.get(type(event), []))
         for handler in handlers:
             handler(event)
