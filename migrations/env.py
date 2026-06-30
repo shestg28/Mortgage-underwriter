@@ -50,7 +50,9 @@ sys.path.insert(0, str(_repo_root / "src"))
 # Import the SQLAlchemy declarative base.
 # Base.metadata is used by Alembic for --autogenerate table comparison.
 # ---------------------------------------------------------------------------
-from mil.kernel.db import Base  # noqa: E402
+# Sprint 3B — Application & Party + Audit
+from mil.application import models as _application_models  # noqa: E402, F401
+from mil.audit import models as _audit_models  # noqa: E402, F401
 
 # ---------------------------------------------------------------------------
 # Import bounded context models so that their tables are registered in
@@ -58,18 +60,18 @@ from mil.kernel.db import Base  # noqa: E402
 #
 # Add one import per bounded context as models are implemented in Sprint 2+:
 #
-# from mil.application import models as _application_models   # noqa: F401
-# from mil.document import models as _document_models         # noqa: F401
-# from mil.evidence import models as _evidence_models         # noqa: F401
-# from mil.policy import models as _policy_models             # noqa: F401
-# from mil.finding import models as _finding_models           # noqa: F401
-# from mil.review import models as _review_models             # noqa: F401
-# from mil.audit import models as _audit_models               # noqa: F401
-# from mil.operational import models as _operational_models   # noqa: F401
-# from mil.integration import models as _integration_models   # noqa: F401
-# from mil.identity import models as _identity_models         # noqa: F401
-# from mil.orchestrator import models as _orchestrator_models # noqa: F401
+# from mil.document import models as _document_models
+# from mil.evidence import models as _evidence_models
+# from mil.policy import models as _policy_models
+# from mil.finding import models as _finding_models
+# from mil.review import models as _review_models
+# from mil.operational import models as _operational_models
+# from mil.integration import models as _integration_models
+# from mil.orchestrator import models as _orchestrator_models
 # ---------------------------------------------------------------------------
+# Sprint 3A — Identity & Access
+from mil.identity import models as _identity_models  # noqa: E402, F401
+from mil.kernel.db import Base  # noqa: E402
 
 target_metadata = Base.metadata
 
