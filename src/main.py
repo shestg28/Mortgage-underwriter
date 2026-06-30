@@ -1,0 +1,104 @@
+"""
+MIL Platform API — application entry point.
+
+Creates the FastAPI application, mounts all v1 routers, registers exception
+handlers, and wires up the dependency injection container and database session
+factory in the lifespan context.
+
+Usage::
+
+    # Development
+    uvicorn main:app --reload --host 0.0.0.0 --port 8000
+
+    # Production (via container entrypoint)
+    uvicorn main:app --host 0.0.0.0 --port 8000 --workers 4
+
+The module-level ``app`` is the ASGI callable expected by Uvicorn and
+production WSGI/ASGI servers.
+"""
+
+from __future__ import annotations
+
+from collections.abc import AsyncGenerator  # noqa: TC003
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from mil.api.errors import register_error_handlers
+from mil.api.v1.applications import router as applications_router
+from mil.api.v1.auth import router as auth_router
+from mil.api.v1.documents import router as documents_router
+from mil.kernel.config import Settings, get_settings
+from mil.kernel.container import build_container
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    """
+    Application lifespan handler.
+
+    Startup:
+        - Load settings from environment.
+        - Build the DI container (registers providers).
+        - Create the synchronous SQLAlchemy session factory.
+        - Store both on ``app.state`` for dependency access.
+
+    Shutdown:
+        - Dispose of the SQLAlchemy connection pool.
+    """
+    settings: Settings = get_settings()
+    container = build_container(settings)
+    engine = create_engine(settings.database_sync_url)
+    factory = sessionmaker(bind=engine, autocommit=False, autoflush=False)
+
+    app.state.settings = settings
+    app.state.container = container
+    app.state.session_factory = factory
+
+    yield
+
+    engine.dispose()
+
+
+def create_app(settings: Settings | None = None) -> FastAPI:
+    """
+    Assemble and return the FastAPI application.
+
+    Accepts an optional ``settings`` override for testing.  When omitted,
+    settings are loaded from environment variables in the lifespan handler.
+
+    Args:
+        settings: Optional pre-constructed settings (used in integration tests).
+
+    Returns:
+        Configured FastAPI application with all routers and error handlers.
+    """
+    app = FastAPI(
+        title="Mortgage Intelligence Layer (MIL)",
+        version="1.0.0",
+        description=(
+            "API-first intelligence layer for mortgage document processing. "
+            "MIL transforms source documents into structured, explainable "
+            "evidence that supports human decision makers throughout the "
+            "mortgage review lifecycle. MIL never approves or rejects loan "
+            "applications — human reviewers retain decision authority at "
+            "every stage."
+        ),
+        openapi_url="/v1/openapi.json",
+        docs_url="/v1/docs",
+        redoc_url="/v1/redoc",
+        lifespan=lifespan,
+    )
+
+    register_error_handlers(app)
+
+    app.include_router(auth_router)
+    app.include_router(applications_router)
+    app.include_router(documents_router)
+
+    return app
+
+
+app: FastAPI = create_app()
