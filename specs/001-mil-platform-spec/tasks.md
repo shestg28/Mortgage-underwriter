@@ -108,6 +108,29 @@ and validation of each layer. Each phase is independently deployable and testabl
 
 ---
 
+## Phase 3.5: Architecture Readiness (Pre-US2)
+
+**Purpose**: Prepare the platform's event, transaction, and coordination architecture for the Intelligence Pipeline. This phase eliminates the architectural risks identified in the US2 Architecture Readiness Review **without changing current runtime behaviour**. It introduces no OCR, Evidence, Finding, or Orchestrator business logic.
+
+**⚠️ CRITICAL**: This phase **BLOCKS US2**. No Phase 4 task may begin until this phase is complete and all existing tests still pass. It is governed by ADR-007, ADR-008, and ADR-009.
+
+**Scope discipline**: tasks below state architectural objectives only. Implementation detail (file layout, schema columns, code) is deliberately deferred to the implementing engineer, consistent with the readiness nature of this phase.
+
+- [ ] TR01 Transactional Outbox: introduce a committed-event outbox so cross-context `DomainEvent`s are recorded in the same database transaction as the state change that produces them, per ADR-007. Audit remains synchronous and in-transaction — audit does **not** move through the outbox.
+- [ ] TR02 Relay process: add a relay that publishes committed outbox events to the `EventBus` and records publication, establishing commit-before-publish and at-least-once delivery, per ADR-007.
+- [ ] TR03 [P] Migrate `DocumentIngested` publication from the direct service-layer `event_bus.publish()` call to an outbox write inside the ingestion transaction, per ADR-007. No change to observable upload behaviour.
+- [ ] TR04 Idempotency foundation: define deterministic idempotency keys and a per-job Unit of Work for pipeline work, backed by database unique constraints, so that at-least-once delivery yields exactly-once effects, per ADR-008.
+- [ ] TR05 [P] Retry policy foundation: express retryable-vs-terminal classification on the provider/error contract, with bounded retries, backoff, and dead-letter routing, per ADR-008.
+- [ ] TR06 Workflow version pinning: establish the `WorkflowRun` contract that pins the policy, model, prompt, and extraction versions at run creation, so pipeline output is reproducible and attributable, per ADR-009.
+- [ ] TR07 [P] Correlation ID propagation: populate and propagate `DomainEvent.correlation_id` (set to the workflow run identity) through outbox events, jobs, and audit events, enabling single-trace pipeline reconstruction, per ADR-009.
+- [ ] TR08 [P] Workflow lifecycle events: add the typed domain events promised by the plan but absent from the kernel — workflow started, workflow step completed, workflow completed — alongside the existing `WorkflowStepFailed`, per ADR-009.
+- [ ] TR09 Finding generation trigger alignment: record that finding generation is triggered by the `MortgageApplication` DRAFT → SUBMITTED transition and evaluates all application evidence at that point — not per document — per ADR-009. (Architectural alignment only; orchestrator implementation is US2.)
+- [ ] TR10 Regression gate: confirm all existing US1 unit and integration tests still pass and that no current runtime behaviour has changed as a result of this phase.
+
+**Checkpoint**: Architecture Readiness complete. Outbox + relay (commit-before-publish), idempotency foundation, workflow version pinning, correlation-ID propagation, workflow lifecycle events, and the submission-triggered finding-generation decision are all in place. Audit remains synchronous and transactional. US2 may now begin.
+
+---
+
 ## Phase 4: User Story 2 — Document Intelligence and Evidence Core
 
 **Goal**: End-to-end document ingestion pipeline producing Evidence with full provenance. Intelligence Orchestrator coordinates the pipeline. Findings generated with complete attribution and Evidence Snapshots.
@@ -246,7 +269,8 @@ and validation of each layer. Each phase is independently deployable and testabl
 - **Setup (Phase 1)**: No dependencies — start immediately
 - **Foundational (Phase 2)**: Depends on Phase 1 completion — **BLOCKS all user stories**
 - **US1 (Phase 3)**: Depends on Platform Kernel (Phase 2) — no dependency on other user stories
-- **US2 (Phase 4)**: Depends on US1 (Platform Foundation) — requires Application, Document, Audit infrastructure
+- **Architecture Readiness (Phase 3.5)**: Depends on US1 (Phase 3) — **BLOCKS US2 (Phase 4)**; governed by ADR-007, ADR-008, ADR-009
+- **US2 (Phase 4)**: Depends on US1 (Platform Foundation) **and on Architecture Readiness (Phase 3.5)** — requires Application, Document, Audit infrastructure plus the outbox, idempotency, version-pinning, and correlation-ID foundations
 - **US3 (Phase 5)**: Depends on US2 (finding generation must exist to verify/override)
 - **US4 (Phase 6)**: Depends on US2 (evidence must exist for Copilot); OI component depends only on US1 and can proceed in parallel with US3
 - **US5 (Phase 7)**: Depends on US1 (Application/Party); Integration Gateway independent of US2–US4
@@ -291,7 +315,11 @@ The task list represents the complete implementation backlog for the Mortgage In
 
 ### Milestone 2 — Mortgage Intelligence Core
 
-**Phases**: Phase 4 (US2)
+**Phases**: Phase 3.5 (Architecture Readiness) · Phase 4 (US2)
+
+> Phase 3.5 is a prerequisite gate, not a user story. It hardens the event,
+> transaction, and coordination architecture (ADR-007, ADR-008, ADR-009) before
+> any US2 intelligence code is written, and changes no current runtime behaviour.
 
 **Deliverable**: End-to-end document processing producing Evidence, Findings, and Evidence Snapshots through the Intelligence Orchestrator.
 

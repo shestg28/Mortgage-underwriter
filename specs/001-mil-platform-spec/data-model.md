@@ -144,9 +144,14 @@ ACCESS_DENIED
 
 ---
 
-## Schema: `document`
+## Document Processing (schema: `core`)
 
-### `document.documents`
+*The Document Processing bounded context's `documents` table resides in the `core`
+schema, matching the implemented architecture (`src/mil/document/models.py`,
+migration `0002_document_context.py`) and ADR-006. There is no separate `document`
+schema.*
+
+### `core.documents`
 
 | Column | Type | Constraints | Description |
 |---|---|---|---|
@@ -174,7 +179,7 @@ ACCESS_DENIED
 | `id` | UUID | PK | |
 | `application_id` | UUID | FK → `core.applications.id`, NOT NULL | |
 | `party_id` | UUID | FK → `core.parties.id`, NULLABLE | Party this evidence pertains to |
-| `document_id` | UUID | FK → `document.documents.id`, NOT NULL | Source document |
+| `document_id` | UUID | FK → `core.documents.id`, NOT NULL | Source document |
 | `tenant_id` | UUID | NOT NULL | |
 | `evidence_type` | VARCHAR(100) | NOT NULL | e.g., MONTHLY_INCOME, PROPERTY_VALUE |
 | `value_text` | TEXT | NULLABLE | Extracted value as text |
@@ -351,12 +356,12 @@ a potential tamper event.*
 ```
 core.applications
   ├── core.parties (1:many)
-  ├── document.documents (1:many, via party_id)
+  ├── core.documents (1:many, via party_id)
   ├── evidence.evidence_items (1:many, via application_id)
   ├── finding.findings (1:many, via application_id)
   └── core.policy_packs (many:1, active pack)
 
-document.documents
+core.documents
   └── evidence.evidence_items (1:many, via document_id)
 
 evidence.evidence_items
