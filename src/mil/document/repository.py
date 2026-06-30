@@ -1,0 +1,101 @@
+"""
+Repository for the Document Processing bounded context.
+
+``DocumentRepository`` is the only persistence gateway for ``Document`` records.
+All audit events emitted by the document aggregate are drained here and written
+to the audit log via ``AuditWriter`` in the same database transaction.
+
+ADR-005 note: Document's internal state events (DOCUMENT_UPLOADED,
+DOCUMENT_STORED) use the same dict-based pending event pattern as
+``MortgageApplication``. This is the intentional transitional design documented
+in ADR-005. Migration to typed ``DomainEvent`` objects is deferred to US2.
+The platform-level coordination event (``DocumentIngested``) is published on the
+``EventBus`` by ``DocumentService`` using the typed ``DomainEvent`` hierarchy
+from ``mil.kernel.events`` — that IS the full adoption path for external events.
+
+Dependency rule: imports only from ``mil.document.models``, ``mil.kernel``,
+and the Python standard library.
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from sqlalchemy import select
+
+from mil.document.models import Document
+
+if TYPE_CHECKING:
+    from uuid import UUID
+
+    from sqlalchemy.orm import Session
+
+    from mil.audit.writer import AuditWriter
+    from mil.kernel.security import AuthenticatedUser
+
+
+class DocumentRepository:
+    """
+    Persistence gateway for the Document aggregate.
+
+    Responsibilities:
+    - Persist new Document records (``save``).
+    - Drain pending domain events to the audit log after each flush.
+    - Retrieve documents by id or by application.
+
+    There is no ``PartyRepository`` — parties are loaded through
+    ``ApplicationRepository``. Similarly, there is no method here that
+    modifies the ``MortgageApplication`` aggregate — cross-context state
+    changes use domain events on the ``EventBus``.
+    """
+
+    def __init__(self, session: Session, audit_writer: AuditWriter) -> None:
+        self._session = session
+        self._audit = audit_writer
+
+    def save(self, document: Document, *, actor: AuthenticatedUser) -> None:
+        """
+        Persist ``document`` and drain its pending events to the audit log.
+
+        The drain happens in three steps:
+          1. Collect pending events BEFORE flush (they reference pre-flush state).
+          2. Add document to the session and flush.
+          3. Write each event as an AuditEvent in the SAME session.
+
+        Atomicity: if ``session.flush()`` raises, pending events are not written.
+        If ``audit.record()`` raises, the transaction rolls back with the domain flush.
+        """
+        pending = document.collect_pending_events()
+        self._session.add(document)
+        self._session.flush()
+        for event in pending:
+            self._audit.record(
+                event_type=str(event["event_type"]),
+                entity_type=str(event["entity_type"]),
+                entity_id=event["entity_id"],  # type: ignore[arg-type]
+                tenant_id=document.tenant_id,
+                application_id=document.application_id,
+                actor_id=actor.user_id,
+                event_data=event.get("data") or {},  # type: ignore[arg-type]
+            )
+
+    def get_by_id(self, document_id: UUID) -> Document | None:
+        """Return the Document with the given id, or ``None`` if not found."""
+        return self._session.get(Document, document_id)
+
+    def get_for_application(self, application_id: UUID) -> list[Document]:
+        """
+        Return all documents associated with the given application.
+
+        Results are ordered by upload time, most recent first.
+        """
+        stmt = (
+            select(Document)
+            .where(Document.application_id == application_id)
+            .order_by(Document.uploaded_at.desc())
+        )
+        return list(self._session.scalars(stmt))
+
+    def exists(self, document_id: UUID) -> bool:
+        """Return ``True`` if a Document with the given id exists."""
+        return self.get_by_id(document_id) is not None

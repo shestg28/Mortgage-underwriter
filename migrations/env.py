@@ -71,6 +71,9 @@ from mil.audit import models as _audit_models  # noqa: E402, F401
 # ---------------------------------------------------------------------------
 # Sprint 3A — Identity & Access
 from mil.identity import models as _identity_models  # noqa: E402, F401
+
+# Sprint 3C — Document Processing
+from mil.document import models as _document_models  # noqa: E402, F401
 from mil.kernel.db import Base  # noqa: E402
 
 target_metadata = Base.metadata
