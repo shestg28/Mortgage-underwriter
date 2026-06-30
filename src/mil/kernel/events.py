@@ -233,6 +233,58 @@ class OverrideRecorded(DomainEvent):
 
 
 @dataclasses.dataclass(frozen=True, eq=False)
+class WorkflowStarted(DomainEvent):
+    """
+    Emitted when the Intelligence Orchestrator creates a new workflow run.
+
+    Records the application the run coordinates and the workflow type
+    (e.g. ``"DOCUMENT_INGESTION"``, ``"FINDING_GENERATION"``).  The pinned
+    version set lives on the ``WorkflowRun`` itself (ADR-009); this event is a
+    lifecycle signal, not the attribution record.
+
+    The ``correlation_id`` (inherited, keyword-only) carries the workflow run
+    identity so the whole pipeline execution can be reconstructed end-to-end
+    (ADR-009, Principle X).
+    """
+
+    workflow_run_id: WorkflowRunId
+    application_id: ApplicationId
+    workflow_type: str
+
+
+@dataclasses.dataclass(frozen=True, eq=False)
+class WorkflowStepCompleted(DomainEvent):
+    """
+    Emitted when a single workflow step completes successfully.
+
+    ``step_name`` identifies the step within the run; ``step_order`` is its
+    position in the declared step sequence.  The orchestrator uses this signal
+    to dispatch the next step (US2 Sprint 2+); in Sprint 1 it is a lifecycle
+    fact recorded for observability.
+    """
+
+    workflow_run_id: WorkflowRunId
+    step_name: str
+    step_order: int = 0
+
+
+@dataclasses.dataclass(frozen=True, eq=False)
+class WorkflowCompleted(DomainEvent):
+    """
+    Emitted when every step of a workflow run has completed successfully and
+    the run reaches its successful terminal state.
+
+    The Intelligence Orchestrator emits this as the run's final lifecycle
+    signal.  Downstream consumers must not infer completion from delivery
+    order — they read it from this event and from workflow state.
+    """
+
+    workflow_run_id: WorkflowRunId
+    application_id: ApplicationId
+    workflow_type: str
+
+
+@dataclasses.dataclass(frozen=True, eq=False)
 class WorkflowStepFailed(DomainEvent):
     """
     Emitted when a workflow step fails after exhausting all retry attempts.

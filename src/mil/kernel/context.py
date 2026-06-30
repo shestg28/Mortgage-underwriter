@@ -89,3 +89,14 @@ def get_request_context() -> RequestContext:
     """Return the request context for the current execution, or a blank default."""
     ctx = _current_request_context.get()
     return ctx if ctx is not None else RequestContext()
+
+
+def reset_request_context(token: contextvars.Token[RequestContext | None]) -> None:
+    """
+    Restore the request context to its prior value.
+
+    Pass the token returned by ``set_request_context``. Used by request
+    middleware and the worker harness to unbind a context after the unit of
+    work completes.
+    """
+    _current_request_context.reset(token)

@@ -270,14 +270,10 @@ def upgrade() -> None:
             "sequence_number",
             sa.BigInteger(),
             nullable=False,
-            server_default=sa.text(
-                "nextval('audit.audit_events_sequence_number_seq')"
-            ),
+            server_default=sa.text("nextval('audit.audit_events_sequence_number_seq')"),
         ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_audit_events")),
-        sa.UniqueConstraint(
-            "sequence_number", name=op.f("uq_audit_events_sequence_number")
-        ),
+        sa.UniqueConstraint("sequence_number", name=op.f("uq_audit_events_sequence_number")),
         schema="audit",
     )
     op.create_index(
