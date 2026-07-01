@@ -84,6 +84,7 @@ class IntelligenceOrchestrator:
         pinned_versions: PinnedVersions,
         correlation_id: str | None = None,
         max_retries: int = 3,
+        job_payload_extra: dict[str, object] | None = None,
     ) -> WorkflowRun:
         """
         Start (or return the existing) workflow run for a trigger.
@@ -103,6 +104,12 @@ class IntelligenceOrchestrator:
             pinned_versions:  The four attribution versions, fixed at creation.
             correlation_id:   End-to-end trace id. Generated if not supplied.
             max_retries:      Retry budget recorded on each planned step.
+            job_payload_extra: Opaque, caller-supplied context merged into the
+                              dispatched job's payload (e.g. ``{"document_id": …}``
+                              from a ``DocumentIngested`` trigger). The orchestrator
+                              forwards it without interpretation — it remains a
+                              pure traffic controller. Reserved coordination keys
+                              cannot be overridden.
 
         Returns:
             The created (or pre-existing) ``WorkflowRun``.
@@ -148,19 +155,25 @@ class IntelligenceOrchestrator:
         self._outbox.add(started)
 
         # 5. Enqueue the first step. correlation_id propagates onto the job.
+        #    Reserved coordination keys are written last so caller-supplied
+        #    context can never override them.
         first_step = run.steps[0]
+        payload: dict[str, object] = dict(job_payload_extra or {})
+        payload.update(
+            {
+                "workflow_run_id": str(run.id),
+                "step_id": str(first_step.id),
+                "step_name": first_step.step_name,
+                "application_id": str(run.application_id),
+                "tenant_id": str(run.tenant_id),
+                "correlation_id": run.correlation_id,
+            }
+        )
         self._queue.enqueue(
             Job(
                 job_type=_JOB_TYPE_WORKFLOW_STEP,
                 idempotency_key=self._step_idempotency_key(run.id, first_step.step_name),
-                payload={
-                    "workflow_run_id": str(run.id),
-                    "step_id": str(first_step.id),
-                    "step_name": first_step.step_name,
-                    "application_id": str(run.application_id),
-                    "tenant_id": str(run.tenant_id),
-                    "correlation_id": run.correlation_id,
-                },
+                payload=payload,
                 max_retries=max_retries,
             )
         )

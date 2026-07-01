@@ -278,13 +278,23 @@ class AuthorizationError(MILError):
 
 
 class ProviderError(MILError):
-    """An external intelligence provider (OCR, extraction, inference, storage) failed."""
+    """
+    An external intelligence provider (OCR, extraction, inference, storage) failed.
+
+    ``retryable`` declares, at the source of the failure, whether the platform
+    may safely retry the operation (ADR-008: retryable-vs-terminal classification
+    is a property of the failure, not a hard-coded list in the orchestrator).
+    A generic provider failure is treated as transient and therefore retryable
+    by default; structural contract violations override this to ``False``.
+    """
 
     def __init__(
         self,
         message: str,
         provider_name: str | None = None,
         details: dict[str, object] | None = None,
+        *,
+        retryable: bool = True,
     ) -> None:
         resolved_details: dict[str, object] = details or {}
         if provider_name is not None:
@@ -294,6 +304,7 @@ class ProviderError(MILError):
             code=ErrorCode.PROVIDER_UNAVAILABLE,
             details=resolved_details,
         )
+        self.retryable = retryable
 
 
 class ProviderVersionMissingError(ProviderError):
@@ -304,6 +315,9 @@ class ProviderVersionMissingError(ProviderError):
     (model version, prompt version, extraction version) so the platform can
     satisfy Principle XII — Deterministic Intelligence.  This error is raised
     when a registered provider violates that contract.
+
+    This is a structural contract violation, not a transient fault: retrying
+    cannot fix it, so it is terminal (``retryable=False``).
     """
 
     def __init__(self, provider_name: str, missing_field: str) -> None:
@@ -314,6 +328,7 @@ class ProviderVersionMissingError(ProviderError):
             ),
             provider_name=provider_name,
             details={"missing_field": missing_field},
+            retryable=False,
         )
         self.code = ErrorCode.PROVIDER_VERSION_MISSING
 

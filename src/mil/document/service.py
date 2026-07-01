@@ -196,3 +196,85 @@ class DocumentService:
         ``ingest_document`` (e.g. for duplicate detection).
         """
         return hashlib.sha256(content).hexdigest()
+
+    # ------------------------------------------------------------------
+    # Pipeline lifecycle transitions (system-driven, invoked by workers)
+    #
+    # DocumentService is the SOLE owner of Document status mutation (ADR-006).
+    # The Intelligence Orchestrator and pipeline workers never write to the
+    # Document record directly — they call these methods. They run as the
+    # platform (SYSTEM actor): no human user, no RBAC check.
+    # ------------------------------------------------------------------
+
+    def get_for_pipeline(self, *, document_id: UUID) -> Document:
+        """
+        Load a document for pipeline processing (system context, no RBAC check).
+
+        Raises:
+            NotFoundError: If no document with the given id exists.
+        """
+        doc = self._repo.get_by_id(document_id)
+        if doc is None:
+            raise NotFoundError("Document", document_id)
+        return doc
+
+    def start_processing(self, *, document_id: UUID) -> Document:
+        """
+        Transition a document to IN_PROGRESS when pipeline processing begins.
+
+        Idempotent: a document already IN_PROGRESS is returned unchanged (no
+        duplicate transition, no duplicate audit event) so that a retried or
+        replayed pipeline job is safe (ADR-008).
+
+        Raises:
+            NotFoundError: If the document does not exist.
+            ConflictError: If the document is in a terminal state (COMPLETED/FAILED).
+        """
+        from mil.document.models import IngestionStatus
+
+        document = self.get_for_pipeline(document_id=document_id)
+        if document.ingestion_status == IngestionStatus.IN_PROGRESS:
+            return document
+        document.mark_processing()
+        self._repo.save(document, actor=None)
+        return document
+
+    def complete_processing(self, *, document_id: UUID) -> Document:
+        """
+        Transition a document to COMPLETED when the full pipeline finishes.
+
+        Driven by the final pipeline stage (a later sprint). Idempotent: a
+        document already COMPLETED is returned unchanged.
+
+        Raises:
+            NotFoundError: If the document does not exist.
+            ConflictError: If the document is not IN_PROGRESS.
+        """
+        from mil.document.models import IngestionStatus
+
+        document = self.get_for_pipeline(document_id=document_id)
+        if document.ingestion_status == IngestionStatus.COMPLETED:
+            return document
+        document.mark_completed()
+        self._repo.save(document, actor=None)
+        return document
+
+    def fail_processing(self, *, document_id: UUID, reason: str) -> Document:
+        """
+        Transition a document to FAILED on a permanent pipeline failure.
+
+        Idempotent: a document already FAILED is returned unchanged.
+
+        Raises:
+            NotFoundError: If the document does not exist.
+            ConflictError: If the document is COMPLETED (a completed document
+                cannot fail).
+        """
+        from mil.document.models import IngestionStatus
+
+        document = self.get_for_pipeline(document_id=document_id)
+        if document.ingestion_status == IngestionStatus.FAILED:
+            return document
+        document.mark_failed(reason)
+        self._repo.save(document, actor=None)
+        return document

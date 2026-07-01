@@ -137,6 +137,28 @@ class DocumentIngested(DomainEvent):
     document_name: str = ""
 
 
+@dataclasses.dataclass(frozen=True, eq=False)
+class OCRCompleted(DomainEvent):
+    """
+    Emitted when the OCR stage of the pipeline has produced and persisted a
+    validated ``OCRResult`` for a document.
+
+    The Intelligence Orchestrator (and, in a later sprint, the Extraction
+    stage) subscribes to this event to advance the pipeline. ``provider_version``
+    records which OCR engine produced the text, satisfying Principle XII; the
+    persisted ``OCRResult`` is the deterministic, immutable source of truth.
+
+    The ``correlation_id`` (inherited, keyword-only) carries the workflow run
+    identity for end-to-end tracing (ADR-009).
+    """
+
+    document_id: DocumentId
+    application_id: ApplicationId
+    workflow_run_id: WorkflowRunId
+    provider_version: str
+    page_count: int
+
+
 # ---------------------------------------------------------------------------
 # Evidence Management events
 # ---------------------------------------------------------------------------

@@ -53,7 +53,7 @@ class DocumentRepository:
         self._session = session
         self._audit = audit_writer
 
-    def save(self, document: Document, *, actor: AuthenticatedUser) -> None:
+    def save(self, document: Document, *, actor: AuthenticatedUser | None) -> None:
         """
         Persist ``document`` and drain its pending events to the audit log.
 
@@ -62,12 +62,18 @@ class DocumentRepository:
           2. Add document to the session and flush.
           3. Write each event as an AuditEvent in the SAME session.
 
+        ``actor`` is the authenticated user responsible for the change, or
+        ``None`` for system-driven pipeline transitions (OCR worker, etc.). When
+        ``None``, the audit event records a SYSTEM actor (``actor_id`` is null),
+        per the ``AuditWriter`` contract.
+
         Atomicity: if ``session.flush()`` raises, pending events are not written.
         If ``audit.record()`` raises, the transaction rolls back with the domain flush.
         """
         pending = document.collect_pending_events()
         self._session.add(document)
         self._session.flush()
+        actor_id = actor.user_id if actor is not None else None
         for event in pending:
             self._audit.record(
                 event_type=str(event["event_type"]),
@@ -75,7 +81,7 @@ class DocumentRepository:
                 entity_id=event["entity_id"],  # type: ignore[arg-type]
                 tenant_id=document.tenant_id,
                 application_id=document.application_id,
-                actor_id=actor.user_id,
+                actor_id=actor_id,
                 event_data=event.get("data") or {},  # type: ignore[arg-type]
             )
 

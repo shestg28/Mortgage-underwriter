@@ -229,20 +229,51 @@ class Document(Base):
     # ------------------------------------------------------------------
 
     def mark_processing(self) -> None:
-        """Advance from PENDING to IN_PROGRESS when the pipeline begins."""
+        """
+        Advance from PENDING to IN_PROGRESS when the pipeline begins.
+
+        Enqueues a DOCUMENT_INGESTION_STARTED audit event so the lifecycle is
+        fully reconstructable (Principle VIII).
+        """
         if self.ingestion_status != IngestionStatus.PENDING:
             raise ConflictError(
                 f"Cannot start processing a {self.ingestion_status} document (id={self.id})"
             )
         self.ingestion_status = IngestionStatus.IN_PROGRESS
+        self._pending_events.append(
+            {
+                "event_type": "DOCUMENT_INGESTION_STARTED",
+                "entity_type": "DOCUMENT",
+                "entity_id": self.id,
+                "data": {
+                    "application_id": str(self.application_id),
+                    "content_hash": self.content_hash,
+                },
+            }
+        )
 
     def mark_completed(self) -> None:
-        """Advance from IN_PROGRESS to COMPLETED when the pipeline finishes."""
+        """
+        Advance from IN_PROGRESS to COMPLETED when the pipeline finishes.
+
+        Enqueues a DOCUMENT_INGESTION_COMPLETED audit event.
+        """
         if self.ingestion_status != IngestionStatus.IN_PROGRESS:
             raise ConflictError(
                 f"Cannot complete a {self.ingestion_status} document (id={self.id})"
             )
         self.ingestion_status = IngestionStatus.COMPLETED
+        self._pending_events.append(
+            {
+                "event_type": "DOCUMENT_INGESTION_COMPLETED",
+                "entity_type": "DOCUMENT",
+                "entity_id": self.id,
+                "data": {
+                    "application_id": str(self.application_id),
+                    "content_hash": self.content_hash,
+                },
+            }
+        )
 
     def mark_failed(self, reason: str) -> None:
         """

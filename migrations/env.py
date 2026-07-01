@@ -57,6 +57,9 @@ from mil.audit import models as _audit_models  # noqa: E402, F401
 # Sprint 3C — Document Processing
 from mil.document import models as _document_models  # noqa: E402, F401
 
+# US2 Sprint 2 — OCR persistence (Document Processing)
+from mil.document import ocr_models as _document_ocr_models  # noqa: E402, F401
+
 # ---------------------------------------------------------------------------
 # Import bounded context models so that their tables are registered in
 # Base.metadata and visible to --autogenerate.

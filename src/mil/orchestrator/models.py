@@ -172,6 +172,45 @@ class WorkflowStep(Base):
 
     run: Mapped[WorkflowRun] = relationship("WorkflowRun", back_populates="steps")
 
+    # ------------------------------------------------------------------
+    # Step lifecycle transitions (driven by the worker executing the step)
+    # ------------------------------------------------------------------
+
+    def mark_in_progress(self) -> None:
+        """Mark the step IN_PROGRESS when a worker begins executing it."""
+        self.status = StepStatus.IN_PROGRESS
+        now = datetime.now(UTC)
+        if self.started_at is None:
+            self.started_at = now
+        self.updated_at = now
+
+    def mark_completed(self) -> None:
+        """Mark the step COMPLETED on successful execution."""
+        self.status = StepStatus.COMPLETED
+        now = datetime.now(UTC)
+        self.completed_at = now
+        self.updated_at = now
+
+    def mark_failed(self, *, error_code: str, error_message: str) -> None:
+        """
+        Mark the step FAILED (terminal) and record the error information.
+
+        Called only after the retry policy has classified the failure as
+        terminal (ADR-008): a non-retryable failure, or a retryable failure that
+        has exhausted its attempts.
+        """
+        self.status = StepStatus.FAILED
+        self.error_code = error_code
+        self.error_message = error_message
+        now = datetime.now(UTC)
+        self.completed_at = now
+        self.updated_at = now
+
+    def record_retry(self, retry_count: int) -> None:
+        """Record the current retry attempt count on the step."""
+        self.retry_count = retry_count
+        self.updated_at = datetime.now(UTC)
+
     @property
     def status_enum(self) -> StepStatus:
         """Return the current step status as a typed enum value."""
