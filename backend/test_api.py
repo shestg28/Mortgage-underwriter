@@ -28,16 +28,15 @@ def test_register_and_login_and_customer_lifecycle():
 
     headers = {"Authorization": f"Bearer {token}"}
 
-    # Create customer
+    # Create first customer in AB prefix range
     response = client.post(
         "/api/customers/",
         json={
-            "customer_id": customer_id,
             "full_name": "Jane Doe",
             "date_of_birth": "1990-01-01",
             "pan": "ABCDE1234F",
             "aadhaar": "123412341234",
-            "salary": 100000.00,
+            "salary": 160000.00,
             "address": "123 Main St",
         },
         headers=headers,
@@ -46,7 +45,43 @@ def test_register_and_login_and_customer_lifecycle():
     print(f"Create customer body: {response.text}")
     assert response.status_code == 200, f"Create customer failed: {response.text}"
     cust_data = response.json()
-    assert cust_data["customer_id"] == customer_id
+    assert cust_data["customer_id"] == "AB00001"
+
+    # Create second customer in AB prefix, should increment sequence
+    response = client.post(
+        "/api/customers/",
+        json={
+            "full_name": "John Smith",
+            "date_of_birth": "1985-05-10",
+            "pan": "ABCDE1234G",
+            "aadhaar": "234523452345",
+            "salary": 170000.00,
+            "address": "456 Elm St",
+        },
+        headers=headers,
+    )
+    assert response.status_code == 200, f"Create second customer failed: {response.text}"
+    cust_data2 = response.json()
+    assert cust_data2["customer_id"] == "AB00002"
+
+    # Create customer in BB prefix to verify independent sequence
+    response = client.post(
+        "/api/customers/",
+        json={
+            "full_name": "Robert Brown",
+            "date_of_birth": "1988-08-20",
+            "pan": "ABCDE1234H",
+            "aadhaar": "345634563456",
+            "salary": 90000.00,
+            "address": "789 Oak St",
+        },
+        headers=headers,
+    )
+    assert response.status_code == 200, f"Create BB prefix customer failed: {response.text}"
+    cust_data3 = response.json()
+    assert cust_data3["customer_id"] == "BB00001"
+
+    customer_id = cust_data["customer_id"]
 
     # Lookup customer
     response = client.get(f"/api/customers/lookup/{customer_id}", headers=headers)

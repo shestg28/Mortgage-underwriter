@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from app.routers.auth import router as auth_router
 from app.routers.customers import router as customers_router
 from app.routers.documents import router as documents_router
@@ -11,6 +12,14 @@ app = FastAPI(
     title="Speckit Mortgage Underwriting API",
     version="0.1.0",
     description="Backend API for mortgage underwriting, verification, and fraud detection.",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 app.include_router(health_router)

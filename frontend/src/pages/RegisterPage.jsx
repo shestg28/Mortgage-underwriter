@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import client from '../api/client'
+import { useAuth } from '../context/AuthContext'
 
 function RegisterPage() {
   const [username, setUsername] = useState('')
@@ -9,6 +10,7 @@ function RegisterPage() {
   const [error, setError] = useState(null)
   const [success, setSuccess] = useState(null)
   const navigate = useNavigate()
+  const { login } = useAuth()
 
   const handleRegister = async (event) => {
     event.preventDefault()
@@ -35,7 +37,7 @@ function RegisterPage() {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       })
 
-      localStorage.setItem('token', loginResponse.data.access_token)
+      login(loginResponse.data.access_token)
       navigate('/')
     } catch (err) {
       setError(err.response?.data?.detail || 'Registration failed. Try again.')

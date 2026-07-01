@@ -1,12 +1,14 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import client from '../api/client'
+import { useAuth } from '../context/AuthContext'
 
 function LoginPage() {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState(null)
   const navigate = useNavigate()
+  const { login } = useAuth()
 
   const handleLogin = async (event) => {
     event.preventDefault()
@@ -21,7 +23,7 @@ function LoginPage() {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       })
 
-      localStorage.setItem('token', response.data.access_token)
+      login(response.data.access_token)
       navigate('/')
     } catch (err) {
       setError(err.response?.data?.detail || 'Login failed. Check credentials.')

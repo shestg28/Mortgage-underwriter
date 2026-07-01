@@ -5,7 +5,6 @@ from uuid import UUID
 
 
 class CustomerCreate(BaseModel):
-    customer_id: str
     full_name: str
     date_of_birth: Optional[date] = None
     pan: Optional[str] = None
@@ -25,6 +24,7 @@ class CustomerUpdate(BaseModel):
 
 class CustomerRead(CustomerCreate):
     id: UUID
+    customer_id: str
 
     class Config:
         from_attributes = True
