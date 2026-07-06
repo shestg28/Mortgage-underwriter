@@ -2,10 +2,11 @@ import { Link, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 
 function DashboardLayout() {
-  const { logout } = useAuth()
+  const { logout, role } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const showHeader = location.pathname === '/'
+  const isCustomer = role === 'customer'
 
   const handleLogout = () => {
     logout()
@@ -17,13 +18,20 @@ function DashboardLayout() {
       <div className="flex min-h-screen w-full">
         <aside className="w-96 min-w-[24rem] bg-white border-r border-slate-200 p-8">
           <nav className="space-y-4 text-base font-semibold text-slate-700">
-            <Link className="block rounded-2xl px-5 py-4 hover:bg-slate-100" to="/customers/register">Customer Registry</Link>
-            <Link className="block rounded-2xl px-5 py-4 hover:bg-slate-100" to="/customers/search">Customer Search</Link>
-            <Link className="block rounded-2xl px-5 py-4 hover:bg-slate-100" to="/applications">Loan Applications</Link>
-            <Link className="block rounded-2xl px-5 py-4 hover:bg-slate-100" to="/upload">Document Upload</Link>
-            <Link className="block rounded-2xl px-5 py-4 hover:bg-slate-100" to="/ocr-results">OCR Results</Link>
-            <Link className="block rounded-2xl px-5 py-4 hover:bg-slate-100" to="/fraud-analysis">Fraud Analysis</Link>
-            <Link className="block rounded-2xl px-5 py-4 hover:bg-slate-100" to="/decision-results">Decision Results</Link>
+            <div className="mb-4 rounded-2xl bg-slate-100 px-5 py-4 text-sm font-semibold text-slate-900">Mortgage Intelligence Layer</div>
+            {isCustomer ? (
+              <>
+                <Link className="block rounded-2xl px-5 py-4 hover:bg-slate-100" to="/customers/register">Customer Registry</Link>
+                <Link className="block rounded-2xl px-5 py-4 hover:bg-slate-100" to="/upload">Document Upload</Link>
+              </>
+            ) : (
+              <>
+                <Link className="block rounded-2xl px-5 py-4 hover:bg-slate-100" to="/customers/search">Customer Search</Link>
+                <Link className="block rounded-2xl px-5 py-4 hover:bg-slate-100" to="/applications">Pending Applications</Link>
+                <Link className="block rounded-2xl px-5 py-4 hover:bg-slate-100" to="/applications/approved">Approved Applications</Link>
+                <Link className="block rounded-2xl px-5 py-4 hover:bg-slate-100" to="/applications/rejected">Rejected Applications</Link>
+              </>
+            )}
           </nav>
           <button
             type="button"

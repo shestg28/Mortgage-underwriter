@@ -98,6 +98,18 @@ function OCRResultsPage() {
               <p className="mt-1 text-base font-semibold text-slate-900">{result.extracted?.aadhaar || 'N/A'}</p>
             </div>
             <div className="rounded-2xl bg-white p-4 shadow-sm">
+              <p className="text-sm text-slate-500">DOB</p>
+              <p className="mt-1 text-base font-semibold text-slate-900">{result.extracted?.dob || 'N/A'}</p>
+            </div>
+            <div className="rounded-2xl bg-white p-4 shadow-sm">
+              <p className="text-sm text-slate-500">Gender</p>
+              <p className="mt-1 text-base font-semibold text-slate-900">{result.extracted?.gender || 'N/A'}</p>
+            </div>
+            <div className="rounded-2xl bg-white p-4 shadow-sm">
+              <p className="text-sm text-slate-500">Mobile</p>
+              <p className="mt-1 text-base font-semibold text-slate-900">{result.extracted?.mobile || 'N/A'}</p>
+            </div>
+            <div className="rounded-2xl bg-white p-4 shadow-sm">
               <p className="text-sm text-slate-500">Salary</p>
               <p className="mt-1 text-base font-semibold text-slate-900">{result.extracted?.salary ?? 'N/A'}</p>
             </div>

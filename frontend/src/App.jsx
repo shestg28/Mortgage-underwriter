@@ -5,7 +5,8 @@ import DashboardLayout from './components/DashboardLayout'
 import DashboardPage from './pages/DashboardPage'
 import CustomerRegistrationPage from './pages/CustomerRegistrationPage'
 import CustomerSearchPage from './pages/CustomerSearchPage'
-import LoanApplicationPage from './pages/LoanApplicationPage'
+import ApplicationListPage from './pages/ApplicationListPage'
+import ApplicationDetailPage from './pages/ApplicationDetailPage'
 import DocumentUploadPage from './pages/DocumentUploadPage'
 import OCRResultsPage from './pages/OCRResultsPage'
 import AnalyzeApplicationPage from './pages/AnalyzeApplicationPage'
@@ -34,7 +35,10 @@ function App() {
             <Route index element={<DashboardPage />} />
             <Route path="customers/register" element={<CustomerRegistrationPage />} />
             <Route path="customers/search" element={<CustomerSearchPage />} />
-            <Route path="applications" element={<LoanApplicationPage />} />
+            <Route path="applications" element={<ApplicationListPage status="pending" title="Pending Applications" />} />
+            <Route path="applications/approved" element={<ApplicationListPage status="approved" title="Approved Applications" />} />
+            <Route path="applications/rejected" element={<ApplicationListPage status="rejected" title="Rejected Applications" />} />
+            <Route path="applications/:applicationId" element={<ApplicationDetailPage />} />
             <Route path="upload" element={<DocumentUploadPage />} />
             <Route path="ocr-results" element={<OCRResultsPage />} />
             <Route path="analyze-application" element={<AnalyzeApplicationPage />} />
